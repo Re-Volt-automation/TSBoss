@@ -28,6 +28,7 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QSet>
 #include <QPixmap>
 #include <QEvent>
 #include <QLineEdit>
@@ -4982,12 +4983,16 @@ void EnclosureWidget::onSaveProject()
     }
     // Build default filename: Nx_Brand1-Brand2
     QStringList brands;
+    QSet<int> seenIds;
     for (const auto &m : m_models) {
-        if (m.driverId >= 0 && m_db && m_db->isOpen()) {
+        if (m.driverId >= 0 && !seenIds.contains(m.driverId) &&
+            m_db && m_db->isOpen()) {
+            seenIds.insert(m.driverId);
             const auto r = m_db->loadDriver(m.driverId);
             if (!r.make.isEmpty()) {
-                const QString b = sanitizeFilename(r.make);
-                if (!brands.contains(b))
+                QString b = sanitizeFilename(r.make);
+                b.replace('-', '_');
+                if (!brands.contains(b, Qt::CaseInsensitive))
                     brands.append(b);
             }
         }
