@@ -553,8 +553,11 @@ void ResponsePlot::clear()
     update();
 }
 
+void ResponsePlot::setPower(double watts) { m_power = watts; update(); }
+
 void ResponsePlot::paintEvent(QPaintEvent *)
 {
+    const double pwrOffset = (m_power > 0.0) ? 10.0 * std::log10(m_power) : 0.0;
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
     p.fillRect(rect(), CLR_PAGE_BG);
@@ -579,7 +582,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                 const double f   = std::pow(10.0, lfMin + (lfMax - lfMin)*i/double(SPL_SCAN));
                 const double raw = portedSplRaw(m, f);
                 if (raw <= 0) continue;
-                const double db  = m.spl + 20.0*std::log10(raw / ref);
+                const double db  = m.spl + pwrOffset + 20.0*std::log10(raw / ref);
                 if (std::isfinite(db)) { yMax = std::max(yMax, db); yMin = std::min(yMin, db); }
             }
             anyValid = true;
@@ -598,7 +601,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                 const double f   = std::pow(10.0, lfMin + (lfMax - lfMin)*i/double(SPL_SCAN));
                 const double raw = bandpassSplRaw(m, f);
                 if (raw <= 0) continue;
-                const double db  = peakDb + 20.0*std::log10(raw / ref);
+                const double db  = peakDb + pwrOffset + 20.0*std::log10(raw / ref);
                 if (std::isfinite(db) && db > -100.0) { yMax = std::max(yMax, db); yMin = std::min(yMin, db); }
             }
             anyValid = true;
@@ -611,7 +614,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                 const double d1  = 1.0 - xsq;
                 const double den = d1*d1 + (x/m.Qtc)*(x/m.Qtc);
                 if (den <= 0) continue;
-                const double db  = m.spl + 10.0*std::log10(xsq*xsq/den);
+                const double db  = m.spl + pwrOffset + 10.0*std::log10(xsq*xsq/den);
                 if (std::isfinite(db) && db > -200.0) { yMax = std::max(yMax, db); yMin = std::min(yMin, db); }
             }
             anyValid = true;
@@ -663,7 +666,8 @@ void ResponsePlot::paintEvent(QPaintEvent *)
     p.translate(14, area.center().y());
     p.rotate(-90);
     p.drawText(QRectF(-area.height()/2.0, -14.0, area.height(), 28.0),
-               Qt::AlignCenter, "SPL  (dB, 1 W / 1 m)");
+               Qt::AlignCenter,
+               QString("SPL  (dB, %1 W / 1 m)").arg(m_power, 0, 'g', 3));
     p.restore();
     p.drawText(QRectF(area.left(), area.bottom() + 20, area.width(), 16),
                Qt::AlignHCenter, "Frequency (Hz)");
@@ -699,7 +703,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                     const double f   = std::pow(10.0, lf);
                     const double raw = rawFn(m, f);
                     if (raw <= 0) continue;
-                    const double db  = m.spl + 20.0*std::log10(raw / ref);
+                    const double db  = m.spl + pwrOffset + 20.0*std::log10(raw / ref);
                     const QPointF pt(xPx(f), yPx(db));
                     if (first) { path.moveTo(pt); first = false; }
                     else       { path.lineTo(pt); }
@@ -749,7 +753,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                     const double f   = std::pow(10.0, lf);
                     const double raw = rawFn(m, f);
                     if (raw <= 0) continue;
-                    const double db  = peakDb + 20.0*std::log10(raw / ref);
+                    const double db  = peakDb + pwrOffset + 20.0*std::log10(raw / ref);
                     const QPointF pt(xPx(f), yPx(db));
                     if (first) { path.moveTo(pt); first = false; }
                     else       { path.lineTo(pt); }
@@ -790,7 +794,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                 const double d1  = 1.0-xsq;
                 const double den = d1*d1 + (x/m.Qtc)*(x/m.Qtc);
                 if (den <= 0.0) continue;
-                const double db = m.spl + 10.0*std::log10(xsq*xsq/den);
+                const double db = m.spl + pwrOffset + 10.0*std::log10(xsq*xsq/den);
                 const QPointF pt(xPx(f), yPx(db));
                 if (first) { curve.moveTo(pt); first = false; }
                 else       { curve.lineTo(pt); }
@@ -899,7 +903,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
             QColor lnClr = am.color; lnClr.setAlpha(110);
 
             // +3 dB line
-            const double yp3 = am.spl + 3.0;
+            const double yp3 = am.spl + pwrOffset + 3.0;
             if (yp3 >= yMin && yp3 <= yMax) {
                 p.setPen(QPen(lnClr, 1.0, Qt::DashLine));
                 p.drawLine(QPointF(area.left(), yPx(yp3)),
@@ -911,14 +915,14 @@ void ResponsePlot::paintEvent(QPaintEvent *)
 
             // Reference (0 dB = rated SPL)
             p.setPen(QPen(CLR_GREY_LT, 1.0, Qt::DashLine));
-            p.drawLine(QPointF(area.left(), yPx(am.spl)),
-                       QPointF(area.right(), yPx(am.spl)));
+            p.drawLine(QPointF(area.left(), yPx(am.spl + pwrOffset)),
+                       QPointF(area.right(), yPx(am.spl + pwrOffset)));
             p.setPen(CLR_GREY);
-            p.drawText(QRectF(area.right() - 42, yPx(am.spl) - 13, 40, 12),
+            p.drawText(QRectF(area.right() - 42, yPx(am.spl + pwrOffset) - 13, 40, 12),
                        Qt::AlignRight | Qt::AlignVCenter, "ref");
 
             // −3 dB line
-            const double ym3 = am.spl - 3.0;
+            const double ym3 = am.spl + pwrOffset - 3.0;
             if (ym3 >= yMin && ym3 <= yMax) {
                 p.setPen(QPen(lnClr, 1.0, Qt::DashLine));
                 p.drawLine(QPointF(area.left(), yPx(ym3)),
@@ -942,7 +946,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                 const double ref = portedSplRaw(m, 1000.0);
                 if (ref <= 0) continue;
                 // Total
-                const double dbTotal = m.spl + 20.0*std::log10(portedSplRaw(m, cf) / ref);
+                const double dbTotal = m.spl + pwrOffset + 20.0*std::log10(portedSplRaw(m, cf) / ref);
                 entries.append({m.color, active,
                                 m.name + " (total)",
                                 yPx(dbTotal), QString("%1 dB").arg(dbTotal, 0, 'f', 1)});
@@ -950,7 +954,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                 QColor cc = m.color; cc.setAlpha(active ? 200 : 120);
                 const double rawCone = portedConeSplRaw(m, cf);
                 if (rawCone > 0) {
-                    const double dbCone = m.spl + 20.0*std::log10(rawCone / ref);
+                    const double dbCone = m.spl + pwrOffset + 20.0*std::log10(rawCone / ref);
                     entries.append({cc, false,
                                     "  cone",
                                     yPx(dbCone), QString("%1 dB").arg(dbCone, 0, 'f', 1)});
@@ -958,7 +962,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                 // Port
                 const double rawPort = portedPortSplRaw(m, cf);
                 if (rawPort > 0) {
-                    const double dbPort = m.spl + 20.0*std::log10(rawPort / ref);
+                    const double dbPort = m.spl + pwrOffset + 20.0*std::log10(rawPort / ref);
                     entries.append({cc, false,
                                     "  port",
                                     yPx(dbPort), QString("%1 dB").arg(dbPort, 0, 'f', 1)});
@@ -970,7 +974,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                 const double d1  = 1.0 - xsq;
                 const double den = d1*d1 + (x/m.Qtc)*(x/m.Qtc);
                 if (den <= 0) continue;
-                const double db = m.spl + 10.0*std::log10(xsq*xsq/den);
+                const double db = m.spl + pwrOffset + 10.0*std::log10(xsq*xsq/den);
                 entries.append({m.color, active, m.name,
                                 yPx(db), QString("%1 dB").arg(db, 0, 'f', 1)});
             }
@@ -2131,7 +2135,8 @@ void EnclosureWidget::buildUi()
             m_vpPlot->setPower(v);
             m_excPlot->setPower(v);
             m_pvPlot->setPower(v);
-            for (auto *s : {m_excPower, m_pvPower}) if (s) {
+            m_splPlot->setPower(v);
+            for (auto *s : {m_excPower, m_pvPower, m_splPower}) if (s) {
                 s->blockSignals(true); s->setValue(v); s->blockSignals(false);
             }
         });
@@ -2158,7 +2163,8 @@ void EnclosureWidget::buildUi()
             m_excPlot->setPower(v);
             m_vpPlot->setPower(v);
             m_pvPlot->setPower(v);
-            for (auto *s : {m_power, m_pvPower}) if (s) {
+            m_splPlot->setPower(v);
+            for (auto *s : {m_power, m_pvPower, m_splPower}) if (s) {
                 s->blockSignals(true); s->setValue(v); s->blockSignals(false);
             }
         });
@@ -2185,7 +2191,36 @@ void EnclosureWidget::buildUi()
             m_pvPlot->setPower(v);
             m_vpPlot->setPower(v);
             m_excPlot->setPower(v);
-            for (auto *s : {m_power, m_excPower}) if (s) {
+            m_splPlot->setPower(v);
+            for (auto *s : {m_power, m_excPower, m_splPower}) if (s) {
+                s->blockSignals(true); s->setValue(v); s->blockSignals(false);
+            }
+        });
+    }
+
+    // SPL tab: power control + plot
+    auto *splTab = new QWidget;
+    {
+        auto *vb = new QVBoxLayout(splTab);
+        vb->setContentsMargins(6, 6, 6, 0);
+        vb->setSpacing(4);
+        auto *hb = new QHBoxLayout;
+        auto *pwrLbl = new QLabel("APPLIED POWER");
+        pwrLbl->setStyleSheet(
+            "color:#D97706; font-family:'IBM Plex Sans',sans-serif;"
+            "font-weight:600; font-size:8.5pt; letter-spacing:1.5px;"
+            "padding-right:8px;");
+        m_splPower = mkPowerSpin();
+        hb->addWidget(pwrLbl); hb->addWidget(m_splPower); hb->addStretch();
+        vb->addLayout(hb);
+        vb->addWidget(m_splPlot, 1);
+        connect(m_splPower, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+                this, [this](double v) {
+            m_splPlot->setPower(v);
+            m_vpPlot->setPower(v);
+            m_excPlot->setPower(v);
+            m_pvPlot->setPower(v);
+            for (auto *s : {m_power, m_excPower, m_pvPower}) if (s) {
                 s->blockSignals(true); s->setValue(v); s->blockSignals(false);
             }
         });
@@ -2197,17 +2232,18 @@ void EnclosureWidget::buildUi()
     // without this the curves don't match the displayed power
     // until the user nudges the spin.
     {
-        const double w = m_power->value();  // all three spins agree
+        const double w = m_power->value();  // all four spins agree
         m_vpPlot ->setPower(w);
         m_excPlot->setPower(w);
         m_pvPlot ->setPower(w);
+        m_splPlot->setPower(w);
     }
 
     m_plotTabs = new QTabWidget;
     // Inherits global tab QSS; override only the pane to remove the
     // outline since the plot canvas already has its own dark surface.
     m_plotTabs->setStyleSheet("QTabWidget::pane{border:none;background:#0E1116;}");
-    m_plotTabs->addTab(m_splPlot, "SPL");           // index 0
+    m_plotTabs->addTab(splTab,    "SPL");           // index 0
     m_plotTabs->addTab(m_gdPlot,  "GROUP DELAY");   // index 1
     m_plotTabs->addTab(voltTab,   "VOLTAGE");       // index 2
     m_plotTabs->addTab(excTab,    "EXCURSION");     // index 3

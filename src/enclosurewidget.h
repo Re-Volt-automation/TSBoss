@@ -133,6 +133,7 @@ public:
     void clear();
     void setYRange(double min, double max) { m_yMin = min; m_yMax = max; update(); }
     void resetYRange()                     { m_yMin.reset(); m_yMax.reset(); update(); }
+    void setPower(double watts);
 
 protected:
     void paintEvent(QPaintEvent *) override;
@@ -142,6 +143,7 @@ protected:
 private:
     QList<BoxModel>       m_models;
     int                   m_activeIdx  = -1;
+    double                m_power      = 1.0;
     double                m_cursorFreq = -1.0;
     std::optional<double> m_yMin, m_yMax;
 };
@@ -462,6 +464,7 @@ private:
     QDoubleSpinBox   *m_power     = nullptr;
     QDoubleSpinBox   *m_excPower  = nullptr;
     QDoubleSpinBox   *m_pvPower   = nullptr;
+    QDoubleSpinBox   *m_splPower  = nullptr;
 
     QList<int>         m_driverIds;
     PlotRangeSettings  m_plotRanges;
