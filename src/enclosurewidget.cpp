@@ -32,6 +32,7 @@
 #include <QEvent>
 #include <QLineEdit>
 #include <QTabWidget>
+#include <QRegularExpression>
 #include <QCheckBox>
 #include <QSpinBox>
 #include <QSlider>
@@ -4897,6 +4898,17 @@ void EnclosureWidget::deserializeModels(const QString &json)
 
 // ── File save / load ─────────────────────────────────────────────
 
+static QString sanitizeFilename(const QString &s)
+{
+    QString out = s;
+    out.replace(" / ", "_");
+    out.replace(' ', '_');
+    out.remove(QRegularExpression(R"([^A-Za-z0-9_\-+.])"));
+    out.replace(QRegularExpression("_+"), "_");
+    out.remove(QRegularExpression("^_+|_+$"));
+    return out.isEmpty() ? "enclosure" : out;
+}
+
 void EnclosureWidget::onSaveModel()
 {
     if (m_activeIdx < 0 || m_activeIdx >= m_models.size()) {
@@ -4907,7 +4919,7 @@ void EnclosureWidget::onSaveModel()
     const auto &model = m_models[m_activeIdx];
     const QString path = QFileDialog::getSaveFileName(
         this, "Save Model",
-        QDir::homePath() + "/" + model.name + ".tsbox",
+        QDir::homePath() + "/" + sanitizeFilename(model.name) + ".tsbox",
         "TSBoss Model (*.tsbox)");
     if (path.isEmpty()) return;
 
@@ -4968,8 +4980,25 @@ void EnclosureWidget::onSaveProject()
             "Add at least one model before saving a project.");
         return;
     }
+    // Build default filename: Nx_Brand1-Brand2
+    QStringList brands;
+    for (const auto &m : m_models) {
+        if (m.driverId >= 0 && m_db && m_db->isOpen()) {
+            const auto r = m_db->loadDriver(m.driverId);
+            if (!r.make.isEmpty()) {
+                const QString b = sanitizeFilename(r.make);
+                if (!brands.contains(b))
+                    brands.append(b);
+            }
+        }
+    }
+    brands.sort(Qt::CaseInsensitive);
+    const QString stem = brands.isEmpty()
+        ? "enclosure"
+        : QString("%1x_%2").arg(m_models.size()).arg(brands.join('-'));
+
     const QString path = QFileDialog::getSaveFileName(
-        this, "Save Project", QDir::homePath() + "/enclosure.tsproj",
+        this, "Save Project", QDir::homePath() + "/" + stem + ".tsproj",
         "TSBoss Project (*.tsproj)");
     if (path.isEmpty()) return;
 
