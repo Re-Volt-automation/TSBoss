@@ -1,4 +1,5 @@
 #include "datasheetentrywidget.h"
+#include "theme.h"
 #include "tscalculator.h"
 #include "noscrollspinbox.h"
 #include <QScrollArea>
@@ -125,7 +126,7 @@ static QWidget *mkFieldRow2(QDoubleSpinBox *spin,
 static QLabel *mkFormLabel(const QString &text)
 {
     auto *l = new QLabel(text);
-    l->setStyleSheet("color:#3a3a3a; background:transparent;");
+    l->setStyleSheet(themed("color:%text2%; background:transparent;"));
     return l;
 }
 
@@ -169,7 +170,7 @@ void DatasheetEntryWidget::buildUi()
 
     // ── Header ────────────────────────────────────────────────────
     auto *title = new QLabel("New Entry – T/S Parameters from Datasheet");
-    title->setStyleSheet("font-size:14pt; font-weight:bold; color:#3a3a3a;");
+    title->setStyleSheet(themed("font-size:14pt; font-weight:bold; color:%text2%;"));
     vbox->addWidget(title);
 
     auto *sub = new QLabel(
@@ -704,9 +705,9 @@ void DatasheetEntryWidget::buildUi()
     {
         auto *hb       = new QHBoxLayout;
         auto *btnCheck = new QPushButton("  Integrity Check  ");
-        btnCheck->setStyleSheet(
-            "QPushButton{background:#8b3a50;color:white;"
-            "border-radius:4px;padding:8px 24px;font-weight:bold;}");
+        btnCheck->setStyleSheet(themed(
+            "QPushButton{background:%accentLt%;color:white;"
+            "border-radius:4px;padding:8px 24px;font-weight:bold;}"));
         auto *btnSave = new QPushButton("  Save to Database  ");
         btnSave->setStyleSheet(
             "QPushButton{background:#27ae60;color:white;"
@@ -717,9 +718,9 @@ void DatasheetEntryWidget::buildUi()
             "border-radius:4px;padding:8px 24px;font-weight:bold;}");
         m_btnSaveAsNew->setVisible(false);
         auto *btnClear = new QPushButton("Clear");
-        btnClear->setStyleSheet(
-            "QPushButton{background:#bdc3c7;color:#3a3a3a;"
-            "border-radius:4px;padding:8px 16px;}");
+        btnClear->setStyleSheet(themed(
+            "QPushButton{background:%border%;color:%text2%;"
+            "border-radius:4px;padding:8px 16px;}"));
 
         m_statusLbl = new QLabel;
         m_statusLbl->setWordWrap(true);
@@ -1329,12 +1330,12 @@ void DatasheetEntryWidget::onSave()
 {
     DriverRecord r = collectRecord();
     if (r.make.isEmpty() || r.model.isEmpty()) {
-        m_statusLbl->setStyleSheet("color:#e74c3c;");
+        m_statusLbl->setStyleSheet(themed("color:%error%;"));
         m_statusLbl->setText("Manufacturer and Model are required.");
         return;
     }
     if (r.fs <= 0.0) {
-        m_statusLbl->setStyleSheet("color:#e74c3c;");
+        m_statusLbl->setStyleSheet(themed("color:%error%;"));
         m_statusLbl->setText("fₛ must be > 0.");
         return;
     }
@@ -1355,12 +1356,12 @@ void DatasheetEntryWidget::onSaveAsNew()
 {
     DriverRecord r = collectRecord();
     if (r.make.isEmpty() || r.model.isEmpty()) {
-        m_statusLbl->setStyleSheet("color:#e74c3c;");
+        m_statusLbl->setStyleSheet(themed("color:%error%;"));
         m_statusLbl->setText("Manufacturer and Model are required.");
         return;
     }
     if (r.fs <= 0.0) {
-        m_statusLbl->setStyleSheet("color:#e74c3c;");
+        m_statusLbl->setStyleSheet(themed("color:%error%;"));
         m_statusLbl->setText("fₛ must be > 0.");
         return;
     }

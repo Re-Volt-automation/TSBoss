@@ -5,6 +5,10 @@
 #include "datasheetentrywidget.h"
 #include "enclosurewidget.h"
 #include "tswizard.h"
+#include "theme.h"
+#include <QApplication>
+#include <QButtonGroup>
+#include <QRadioButton>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QVBoxLayout>
@@ -96,7 +100,6 @@ void MainWindow::buildSidebar()
     m_sidebar = new QWidget;
     m_sidebar->setObjectName("sidebar");
     m_sidebar->setFixedWidth(kSidebarExpanded);
-    m_sidebar->setStyleSheet("#sidebar { background-color: #4a1a2e; }");
 
     auto *vb = new QVBoxLayout(m_sidebar);
     vb->setContentsMargins(0, 0, 0, 0);
@@ -106,20 +109,12 @@ void MainWindow::buildSidebar()
     m_appTitle = new QPushButton;
     m_appTitle->setFlat(true);
     m_appTitle->setCursor(Qt::PointingHandCursor);
-    m_appTitle->setStyleSheet(
-        "QPushButton { background:transparent; border:none; text-align:left;"
-        "  font-size:20pt; font-weight:bold;"
-        "  padding:20px 4px 6px 14px; letter-spacing:-1px; }"
-        "QPushButton:hover { background:#5c2038; }");
     // Rich text on QPushButton requires a QLabel trick — use a child label
     {
-        auto *inner = new QLabel(
-            "<span style='color:#e05050;'>TS</span>"
-            "<span style='color:#d4a0b0;'>Boss</span>",
-            m_appTitle);
+        auto *inner = new QLabel(m_appTitle);
+        inner->setObjectName("appTitleInner");
         inner->setTextFormat(Qt::RichText);
         inner->setAttribute(Qt::WA_TransparentForMouseEvents);
-        inner->setStyleSheet("background:transparent; font-size:20pt; font-weight:bold; letter-spacing:-1px;");
         auto *titleLayout = new QHBoxLayout(m_appTitle);
         titleLayout->setContentsMargins(14, 20, 4, 6);
         titleLayout->addWidget(inner);
@@ -128,22 +123,18 @@ void MainWindow::buildSidebar()
     vb->addWidget(m_appTitle);
 
     m_appSub = new QLabel("  T/S Parameter Tool");
-    m_appSub->setStyleSheet("color:#a08080; font-size:8pt; padding:0 14px 18px 14px;");
+    m_appSub->setObjectName("appSub");
     vb->addWidget(m_appSub);
 
-    auto *sep1 = new QFrame; sep1->setFrameShape(QFrame::HLine);
-    sep1->setStyleSheet("color:#6b2a40;"); vb->addWidget(sep1);
+    auto *sep1 = new QFrame;
+    sep1->setObjectName("sidebarSep");
+    sep1->setFrameShape(QFrame::HLine);
+    vb->addWidget(sep1);
 
     // ── Nav button helpers ────────────────────────────────────────
-    const QString navStyleExp =
-        "QPushButton { background:transparent; color:#e8d8d8; border:none;"
-        "  text-align:left; padding:13px 20px; font-size:10pt; }"
-        "QPushButton:hover { background:#6b2a40; }"
-        "QPushButton:pressed { background:#8b3a50; }";
-
     auto makeNavBtn = [&](const QString &icon, const QString &label) -> QPushButton * {
         auto *b = new QPushButton(icon + "  " + label);
-        b->setStyleSheet(navStyleExp);
+        b->setObjectName("sidebarNav");
         b->setFlat(true);
         b->setCursor(Qt::PointingHandCursor);
         vb->addWidget(b);
@@ -156,18 +147,14 @@ void MainWindow::buildSidebar()
 
     // ── New Entry dropdown ────────────────────────────────────────
     auto *btnNewEntry = new QPushButton("✏  New Entry  ▾");
-    btnNewEntry->setStyleSheet(navStyleExp);
+    btnNewEntry->setObjectName("sidebarNav");
     btnNewEntry->setFlat(true);
     btnNewEntry->setCursor(Qt::PointingHandCursor);
     vb->addWidget(btnNewEntry);
     m_navEntries.push_back({btnNewEntry, "✏", "New Entry"});
 
     auto *newEntryMenu = new QMenu(this);
-    newEntryMenu->setStyleSheet(
-        "QMenu { background:#3a1828; color:#e8d8d8; border:1px solid #6b2a40; padding:4px 0; }"
-        "QMenu::item { padding:8px 24px 8px 36px; font-size:10pt; }"
-        "QMenu::item:selected { background:#6b2a40; }"
-        "QMenu::separator { height:1px; background:#6b2a40; margin:4px 0; }");
+    newEntryMenu->setObjectName("sidebarMenu");
     auto *actQuick  = newEntryMenu->addAction("⚡  Quick Measurement");
     auto *actWizard = newEntryMenu->addAction("🔬  Guided Wizard");
     newEntryMenu->addSeparator();
@@ -179,8 +166,10 @@ void MainWindow::buildSidebar()
     connect(actWizard, &QAction::triggered, this, &MainWindow::launchWizard);
     connect(actManual, &QAction::triggered, this, &MainWindow::showDatasheetEntry);
 
-    auto *sep2 = new QFrame; sep2->setFrameShape(QFrame::HLine);
-    sep2->setStyleSheet("color:#6b2a40;"); vb->addWidget(sep2);
+    auto *sep2 = new QFrame;
+    sep2->setObjectName("sidebarSep");
+    sep2->setFrameShape(QFrame::HLine);
+    vb->addWidget(sep2);
 
     auto *btnAdvanced = makeNavBtn("⚙", "Advanced Settings");
     auto *btnAbout    = makeNavBtn("ℹ", "About / Method");
@@ -188,8 +177,8 @@ void MainWindow::buildSidebar()
     vb->addStretch();
 
     m_dbStatusLbl = new QLabel;
+    m_dbStatusLbl->setObjectName("appSub");
     m_dbStatusLbl->setWordWrap(true);
-    m_dbStatusLbl->setStyleSheet("color:#a08080; font-size:8pt; padding:10px 14px;");
     vb->addWidget(m_dbStatusLbl);
 
     connect(btnEnclosure, &QPushButton::clicked, this, &MainWindow::showEnclosureModel);
@@ -197,10 +186,12 @@ void MainWindow::buildSidebar()
     connect(btnAdvanced,  &QPushButton::clicked, this, &MainWindow::showAdvancedSettings);
     connect(btnAbout,     &QPushButton::clicked, this, &MainWindow::showAbout);
 
+    // Apply theme-aware styles
+    restyleSidebar();
+
     // Main splitter
     m_splitter = new QSplitter(Qt::Horizontal);
     m_splitter->setHandleWidth(1);
-    m_splitter->setStyleSheet("QSplitter::handle{background:#c0c0c0;}");
     m_splitter->addWidget(m_sidebar);
     m_splitter->addWidget(m_stack);
     m_splitter->setStretchFactor(0, 0);
@@ -209,6 +200,42 @@ void MainWindow::buildSidebar()
     m_splitter->setCollapsible(1, false);
 
     setCentralWidget(m_splitter);
+
+    // Live theme switching: re-style sidebar widgets so they match.
+    connect(&Theme::instance(), &Theme::themeChanged, this, &MainWindow::restyleSidebar);
+}
+
+void MainWindow::restyleSidebar()
+{
+    if (!m_sidebar) return;
+    const auto &t = Theme::instance();
+
+    m_sidebar->setStyleSheet(
+        QString("#sidebar { background-color: %1; }").arg(hex(t.sidebarBg())));
+
+    if (auto *inner = m_appTitle ? m_appTitle->findChild<QLabel*>("appTitleInner") : nullptr) {
+        inner->setStyleSheet(
+            QString("background:transparent; font-size:20pt; font-weight:bold; letter-spacing:-1px;"));
+    }
+
+    if (m_appSub) {
+        m_appSub->setStyleSheet(
+            QString("color:%1; font-size:8pt; padding:0 14px 18px 14px;")
+                .arg(hex(t.textMuted())));
+    }
+    if (m_dbStatusLbl) {
+        m_dbStatusLbl->setStyleSheet(
+            QString("color:%1; font-size:8pt; padding:10px 14px;")
+                .arg(hex(t.textMuted())));
+    }
+
+    // Separator hairlines — keep crisp against the sidebar bg
+    for (auto *sep : m_sidebar->findChildren<QFrame*>("sidebarSep"))
+        sep->setStyleSheet(
+            QString("color:%1; background:%1; max-height:1px;").arg(hex(t.border())));
+
+    // Re-apply per-state nav button styling (handles expanded/collapsed too)
+    applySidebarState();
 }
 
 void MainWindow::toggleSidebar()
@@ -246,48 +273,60 @@ void MainWindow::toggleSidebar()
 void MainWindow::applySidebarState()
 {
     const bool exp = m_sidebarExpanded;
+    const auto &t = Theme::instance();
 
-    // Update the inner rich-text label inside m_appTitle
+    // Logo wordmark — bold amber accent + softened cream/ink for body
+    const QString accentHex = hex(t.accent());
+    const QString softHex   = hex(t.textSecondary());
+    const QString hoverHex  = hex(t.mode() == Theme::Mode::Light ? t.sunkenBg() : t.panelBg());
+
     if (m_appTitle) {
-        auto *inner = m_appTitle->findChild<QLabel*>();
+        auto *inner = m_appTitle->findChild<QLabel*>("appTitleInner");
         if (inner) {
             if (exp)
                 inner->setText(
-                    "<span style='color:#e05050;'>TS</span>"
-                    "<span style='color:#d4a0b0;'>Boss</span>");
+                    QString("<span style='color:%1;'>TS</span>"
+                            "<span style='color:%2;'>Boss</span>")
+                        .arg(accentHex, softHex));
             else
                 inner->setText(
-                    "<center><span style='color:#e05050;'>TS</span></center>");
+                    QString("<center><span style='color:%1;'>TS</span></center>")
+                        .arg(accentHex));
         }
         m_appTitle->setStyleSheet(exp
-            ? "QPushButton { background:transparent; border:none; text-align:left;"
+            ? QString(
+              "QPushButton { background:transparent; border:none; text-align:left;"
               "  font-size:20pt; font-weight:bold;"
               "  padding:20px 4px 6px 14px; letter-spacing:-1px; }"
-              "QPushButton:hover { background:#5c2038; }"
-            : "QPushButton { background:transparent; border:none;"
+              "QPushButton:hover { background:%1; }").arg(hoverHex)
+            : QString(
+              "QPushButton { background:transparent; border:none;"
               "  padding:14px 0 6px 0; }"
-              "QPushButton:hover { background:#5c2038; }");
+              "QPushButton:hover { background:%1; }").arg(hoverHex));
     }
-    if (m_appSub) m_appSub->setVisible(exp);
-
-    // DB status — hide when collapsed (no room)
+    if (m_appSub)      m_appSub->setVisible(exp);
     if (m_dbStatusLbl) m_dbStatusLbl->setVisible(exp);
 
-    // Nav button text and alignment
-    const QString expStyle =
-        "QPushButton { background:transparent; color:#e8d8d8; border:none;"
+    // Nav button styling — amber-on-hover, accent-on-press
+    const QString fgHex      = hex(t.textPrimary());
+    const QString accentBg   = hex(t.accent());
+    const QString textOnAccentHex = hex(t.textOnAccent());
+
+    const QString expStyle = QString(
+        "QPushButton { background:transparent; color:%1; border:none;"
         "  text-align:left; padding:13px 20px; font-size:10pt; }"
-        "QPushButton:hover { background:#6b2a40; }"
-        "QPushButton:pressed { background:#8b3a50; }";
-    const QString colStyle =
-        "QPushButton { background:transparent; color:#e8d8d8; border:none;"
+        "QPushButton:hover { background:%2; color:%3; }"
+        "QPushButton:pressed { background:%4; color:%5; }")
+        .arg(fgHex, hoverHex, accentHex, accentBg, textOnAccentHex);
+    const QString colStyle = QString(
+        "QPushButton { background:transparent; color:%1; border:none;"
         "  text-align:center; padding:12px 4px; font-size:14pt; }"
-        "QPushButton:hover { background:#6b2a40; }"
-        "QPushButton:pressed { background:#8b3a50; }";
+        "QPushButton:hover { background:%2; color:%3; }"
+        "QPushButton:pressed { background:%4; color:%5; }")
+        .arg(fgHex, hoverHex, accentHex, accentBg, textOnAccentHex);
 
     for (auto &e : m_navEntries) {
         e.btn->setStyleSheet(exp ? expStyle : colStyle);
-        // New Entry button keeps the ▾ indicator only when expanded
         if (e.label == "New Entry")
             e.btn->setText(exp ? e.icon + "  " + e.label + "  ▾" : e.icon);
         else
@@ -421,17 +460,44 @@ static double calcSpeedOfSound(double T_C, double RH_pct, double P_hPa)
 void MainWindow::showAdvancedSettings()
 {
     auto *dlg = new QDialog(this);
-    dlg->setWindowTitle("Advanced Settings — Acoustic Environment");
-    dlg->setMinimumWidth(380);
+    dlg->setWindowTitle("Advanced Settings");
+    dlg->setMinimumWidth(420);
 
     auto *vb = new QVBoxLayout(dlg);
 
+    // ── Appearance / Theme ────────────────────────────────────────
+    auto *grpTheme = new QGroupBox("Appearance");
+    auto *themeForm = new QFormLayout(grpTheme);
+    themeForm->setSpacing(8);
+
+    auto *themeRow   = new QWidget;
+    auto *themeHb    = new QHBoxLayout(themeRow);
+    themeHb->setContentsMargins(0,0,0,0); themeHb->setSpacing(16);
+    auto *rbDark     = new QRadioButton("Dark");
+    auto *rbLight    = new QRadioButton("Light");
+    auto *themeGroup = new QButtonGroup(dlg);
+    themeGroup->addButton(rbDark,  0);
+    themeGroup->addButton(rbLight, 1);
+    (Theme::instance().mode() == Theme::Mode::Light ? rbLight : rbDark)->setChecked(true);
+    themeHb->addWidget(rbDark);
+    themeHb->addWidget(rbLight);
+    themeHb->addStretch();
+    themeForm->addRow("Theme:", themeRow);
+
+    auto *themeNote = new QLabel(
+        "Most surfaces switch live. A restart is recommended for a fully clean repaint.");
+    themeNote->setObjectName("FormCaption");
+    themeNote->setWordWrap(true);
+    themeForm->addRow("", themeNote);
+
+    // Apply theme live as the radio changes — gives instant preview
+    connect(themeGroup, &QButtonGroup::idClicked, this, [](int id) {
+        Theme::instance().setMode(id == 1 ? Theme::Mode::Light : Theme::Mode::Dark);
+    });
+    vb->addWidget(grpTheme);
+
     // ── Environmental conditions group ────────────────────────────
     auto *grp = new QGroupBox("Air Conditions");
-    grp->setStyleSheet(
-        "QGroupBox{font-weight:bold;border:1px solid #ddd;border-radius:6px;"
-        "margin-top:16px;padding:12px 8px 8px 8px;}"
-        "QGroupBox::title{subcontrol-origin:margin;left:10px;padding:0 6px;color:#4a1a2e;}");
     auto *form = new QFormLayout(grp);
     form->setSpacing(8);
 
@@ -457,7 +523,7 @@ void MainWindow::showAdvancedSettings()
 
     // ── Computed speed of sound (read-only) ───────────────────────
     auto *cLbl = new QLabel;
-    cLbl->setStyleSheet("font-weight:bold; color:#4a1a2e; font-size:11pt;");
+    cLbl->setObjectName("ResultValue");
     form->addRow("Speed of sound:", cLbl);
 
     auto updateC = [=]{
@@ -476,18 +542,12 @@ void MainWindow::showAdvancedSettings()
     auto *note = new QLabel(
         "Affects all vented-box enclosure calculations.\n"
         "Formula: ISO 9613-1 / Cramer (1993).");
-    note->setStyleSheet("color:#666; font-size:8pt; padding:4px 0;");
+    note->setObjectName("FormCaption");
     note->setWordWrap(true);
     vb->addWidget(note);
 
     // ── Plot Y-axis ranges ────────────────────────────────────────
-    auto grpStyle = QString(
-        "QGroupBox{font-weight:bold;border:1px solid #ddd;border-radius:6px;"
-        "margin-top:16px;padding:12px 8px 8px 8px;}"
-        "QGroupBox::title{subcontrol-origin:margin;left:10px;padding:0 6px;color:#4a1a2e;}");
-
     auto *grpPlot = new QGroupBox("Plot Y-axis Ranges");
-    grpPlot->setStyleSheet(grpStyle);
     auto *plotForm = new QFormLayout(grpPlot);
     plotForm->setSpacing(6);
 
@@ -545,8 +605,6 @@ void MainWindow::showAdvancedSettings()
 
     // ── Buttons ───────────────────────────────────────────────────
     auto *btnReset = new QPushButton("Reset to defaults");
-    btnReset->setStyleSheet("QPushButton{background:#bbb;color:#333;border-radius:4px;"
-                            "padding:5px 12px;}QPushButton:hover{background:#999;}");
     connect(btnReset, &QPushButton::clicked, this, [=]{
         spTemp->setValue(20.0);
         spHum->setValue(50.0);
@@ -561,7 +619,12 @@ void MainWindow::showAdvancedSettings()
     connect(bbox, &QDialogButtonBox::rejected, dlg, &QDialog::reject);
     vb->addWidget(bbox);
 
+    // Remember the theme on entry so we can roll back on Cancel.
+    const Theme::Mode initialThemeMode = Theme::instance().mode();
+
     if (dlg->exec() == QDialog::Accepted) {
+        // Theme already applied live; ensure it is persisted to settings.
+        Theme::instance().saveToSettings();
         const double c = calcSpeedOfSound(spTemp->value(), spHum->value(), spPres->value());
         m_enclosure->setSpeedOfSound(c);
         statusBar()->showMessage(
@@ -585,6 +648,10 @@ void MainWindow::showAdvancedSettings()
         applyRow(rowVolt, r.voltMin, r.voltMax);
         applyRow(rowExc,  r.excMin,  r.excMax);
         m_enclosure->setPlotRanges(r);
+    } else {
+        // Cancel — undo any live theme preview.
+        if (Theme::instance().mode() != initialThemeMode)
+            Theme::instance().setMode(initialThemeMode);
     }
     dlg->deleteLater();
 }

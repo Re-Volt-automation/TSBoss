@@ -7,9 +7,11 @@
 #include <QColor>
 #include <optional>
 
+class QButtonGroup;
 class QCheckBox;
 class QComboBox;
 class QPushButton;
+class QRadioButton;
 class QSlider;
 class QSpinBox;
 class QDoubleSpinBox;
@@ -85,6 +87,10 @@ struct BoxModel
     // Driver count
     int     numDrivers   = 1;     ///< Number of identical drivers in the same cabinet
 
+    // Multi-driver wiring mode (affects electrical parameter scaling in acoustic sim)
+    enum class WiringMode { Series = 0, Parallel = 1, Separate = 2 };
+    WiringMode wiringMode = WiringMode::Series;
+
     // Voice coil type (informational only — from driver record)
     bool    isDVC      = false;
     int     dvcWiring  = 0;  ///< 0=series, 1=parallel
@@ -134,17 +140,21 @@ public:
     void setYRange(double min, double max) { m_yMin = min; m_yMax = max; update(); }
     void resetYRange()                     { m_yMin.reset(); m_yMax.reset(); update(); }
     void setPower(double watts);
+    void setPerDriverMode(bool on) { m_perDriverMode = on; update(); }
 
 protected:
     void paintEvent(QPaintEvent *) override;
     void mouseMoveEvent(QMouseEvent *e) override;
     void leaveEvent(QEvent *) override;
 
-private:
+    double modelPower(const BoxModel &m) const
+        { return m_power * (m_perDriverMode ? std::max(1, m.numDrivers) : 1); }
+
     QList<BoxModel>       m_models;
-    int                   m_activeIdx  = -1;
-    double                m_power      = 1.0;
-    double                m_cursorFreq = -1.0;
+    int                   m_activeIdx    = -1;
+    double                m_power        = 1.0;
+    bool                  m_perDriverMode = false;
+    double                m_cursorFreq   = -1.0;
     std::optional<double> m_yMin, m_yMax;
 };
 
@@ -190,17 +200,21 @@ public:
     void clear();
     void setYRange(double min, double max) { m_yMin = min; m_yMax = max; update(); }
     void resetYRange()                     { m_yMin.reset(); m_yMax.reset(); update(); }
+    void setPerDriverMode(bool on) { m_perDriverMode = on; update(); }
 
 protected:
     void paintEvent(QPaintEvent *) override;
     void mouseMoveEvent(QMouseEvent *e) override;
     void leaveEvent(QEvent *) override;
 
-private:
+    double modelPower(const BoxModel &m) const
+        { return m_power * (m_perDriverMode ? std::max(1, m.numDrivers) : 1); }
+
     QList<BoxModel>       m_models;
-    int                   m_activeIdx  = -1;
-    double                m_power      = 1.0;
-    double                m_cursorFreq = -1.0;
+    int                   m_activeIdx    = -1;
+    double                m_power        = 1.0;
+    bool                  m_perDriverMode = false;
+    double                m_cursorFreq   = -1.0;
     std::optional<double> m_yMin, m_yMax;
 };
 
@@ -219,17 +233,21 @@ public:
     void clear();
     void setYRange(double min, double max) { m_yMin = min; m_yMax = max; update(); }
     void resetYRange()                     { m_yMin.reset(); m_yMax.reset(); update(); }
+    void setPerDriverMode(bool on) { m_perDriverMode = on; update(); }
 
 protected:
     void paintEvent(QPaintEvent *) override;
     void mouseMoveEvent(QMouseEvent *e) override;
     void leaveEvent(QEvent *) override;
 
-private:
+    double modelPower(const BoxModel &m) const
+        { return m_power * (m_perDriverMode ? std::max(1, m.numDrivers) : 1); }
+
     QList<BoxModel>       m_models;
-    int                   m_activeIdx  = -1;
-    double                m_power      = 1.0;
-    double                m_cursorFreq = -1.0;
+    int                   m_activeIdx    = -1;
+    double                m_power        = 1.0;
+    bool                  m_perDriverMode = false;
+    double                m_cursorFreq   = -1.0;
     std::optional<double> m_yMin, m_yMax;
 };
 
@@ -248,17 +266,21 @@ public:
     void clear();
     void setYRange(double min, double max) { m_yMin = min; m_yMax = max; update(); }
     void resetYRange()                     { m_yMin.reset(); m_yMax.reset(); update(); }
+    void setPerDriverMode(bool on) { m_perDriverMode = on; update(); }
 
 protected:
     void paintEvent(QPaintEvent *) override;
     void mouseMoveEvent(QMouseEvent *e) override;
     void leaveEvent(QEvent *) override;
 
-private:
+    double modelPower(const BoxModel &m) const
+        { return m_power * (m_perDriverMode ? std::max(1, m.numDrivers) : 1); }
+
     QList<BoxModel>       m_models;
-    int                   m_activeIdx  = -1;
-    double                m_power      = 100.0;
-    double                m_cursorFreq = -1.0;
+    int                   m_activeIdx    = -1;
+    double                m_power        = 100.0;
+    bool                  m_perDriverMode = false;
+    double                m_cursorFreq   = -1.0;
     std::optional<double> m_yMin, m_yMax;
 };
 
@@ -293,6 +315,7 @@ signals:
 private slots:
     void onModelSelected(int row);
     void onAddModel();
+    void onDuplicateModel();
     void onRemoveModel();
     void onRenameModel();
     void onDriverChanged(int index);
@@ -316,6 +339,7 @@ protected:
 
 private:
     void    buildUi();
+    void    applyPerDriverMode(bool on);
     void    refreshAutoName(int index);
     void    lockTsFields();
     void    unlockTsFields();
@@ -465,6 +489,19 @@ private:
     QDoubleSpinBox   *m_excPower  = nullptr;
     QDoubleSpinBox   *m_pvPower   = nullptr;
     QDoubleSpinBox   *m_splPower  = nullptr;
+
+    // Multi-driver wiring mode controls (in ndRow next to # Drivers)
+    QButtonGroup     *m_wiringGroup       = nullptr;
+    QRadioButton     *m_wiringBtnSeries   = nullptr;
+    QRadioButton     *m_wiringBtnParallel = nullptr;
+    QRadioButton     *m_wiringBtnSeparate = nullptr;
+
+    // Per-driver / Total radio pairs — one set per power tab, all synced.
+    // The member points at the "Per Driver" radio; "Total" is its group sibling.
+    QRadioButton     *m_perDriverPower    = nullptr;  ///< SPL tab
+    QRadioButton     *m_perDriverPowerVolt = nullptr; ///< Voltage tab
+    QRadioButton     *m_perDriverPowerExc  = nullptr; ///< Excursion tab
+    QRadioButton     *m_perDriverPowerPV   = nullptr; ///< Port Velocity tab
 
     QList<int>         m_driverIds;
     PlotRangeSettings  m_plotRanges;

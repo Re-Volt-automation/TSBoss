@@ -30,6 +30,8 @@ set(PROJECT_SOURCES
     src/datasheetentrywidget.cpp
     src/enclosurewidget.h
     src/enclosurewidget.cpp
+    src/theme.h
+    src/theme.cpp
 )
 
 qt_add_executable(TSBoss

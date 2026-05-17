@@ -1,4 +1,5 @@
 #include "quickentrywidget.h"
+#include "theme.h"
 #include "tscalculator.h"
 #include "driverrecord.h"
 #include "noscrollspinbox.h"
@@ -38,9 +39,9 @@ static QLabel *mkHintLbl()
     auto *l = new QLabel;
     l->setWordWrap(true);
     l->setTextFormat(Qt::RichText);
-    l->setStyleSheet(
-        "QLabel{background:#f8f0f2;border-left:4px solid #8b3a50;"
-        "padding:6px 10px;border-radius:3px;color:#4a1a2e;}");
+    l->setStyleSheet(themed(
+        "QLabel{background:%panel%;border-left:4px solid %accentLt%;"
+        "padding:6px 10px;border-radius:3px;color:%accent%;}"));
     l->setVisible(false);
     return l;
 }
@@ -49,7 +50,7 @@ static QLabel *mkHintLbl()
 static QLabel *mkFormLabel(const QString &text)
 {
     auto *l = new QLabel(text);
-    l->setStyleSheet("color:#3a3a3a; background:transparent;");
+    l->setStyleSheet(themed("color:%text2%; background:transparent;"));
     return l;
 }
 
@@ -57,7 +58,7 @@ static QLabel *mkResLbl()
 {
     auto *l = new QLabel("–");
     l->setTextFormat(Qt::RichText);
-    l->setStyleSheet("font-weight:bold; font-size:10pt; color:#3a3a3a; padding:2px 0;");
+    l->setStyleSheet(themed("font-weight:bold; font-size:10pt; color:%text2%; padding:2px 0;"));
     return l;
 }
 
@@ -65,7 +66,7 @@ static void addResRow(QGridLayout *g, int &row,
                       const QString &sym, const QString &name,
                       const QString &unit, QLabel *&out)
 {
-    auto *s = new QLabel("<b>"+sym+"</b>"); s->setStyleSheet("color:#3a3a3a;");
+    auto *s = new QLabel("<b>"+sym+"</b>"); s->setStyleSheet(themed("color:%text2%;"));
     auto *n = new QLabel(name);             n->setStyleSheet("color:#555;");
     out = mkResLbl();
     auto *u = new QLabel(unit);             u->setStyleSheet("color:#888;");
@@ -102,7 +103,7 @@ void QuickEntryWidget::buildUi()
     vbox->setContentsMargins(16,16,16,16);
 
     auto *title = new QLabel("Quick Measurement – Thiele/Small Parameters");
-    title->setStyleSheet("font-size:14pt; font-weight:bold; color:#3a3a3a;");
+    title->setStyleSheet(themed("font-size:14pt; font-weight:bold; color:%text2%;"));
     vbox->addWidget(title);
     auto *sub = new QLabel(
         "Enter all values. Voltage hints appear as you type. "
@@ -334,11 +335,11 @@ void QuickEntryWidget::buildUi()
     {
         auto *hb      = new QHBoxLayout;
         auto *btnCalc = new QPushButton("  Calculate & Continue to Entry  ");
-        btnCalc->setStyleSheet("QPushButton{background:#6b2a40;color:white;"
-                               "border-radius:4px;padding:8px 24px;font-weight:bold;}");
+        btnCalc->setStyleSheet(themed("QPushButton{background:%accentHov%;color:white;"
+                               "border-radius:4px;padding:8px 24px;font-weight:bold;}"));
         auto *btnClear = new QPushButton("Clear");
-        btnClear->setStyleSheet("QPushButton{background:#bdc3c7;color:#3a3a3a;"
-                                "border-radius:4px;padding:8px 16px;}");
+        btnClear->setStyleSheet(themed("QPushButton{background:%border%;color:%text2%;"
+                                "border-radius:4px;padding:8px 16px;}"));
         m_statusLbl = new QLabel;
         m_statusLbl->setWordWrap(true);
         hb->addWidget(btnCalc);
@@ -540,7 +541,7 @@ void QuickEntryWidget::onCalculate()
     DriverRecord r = collectRecord();
     QString err;
     if (!TSCalculator::validateInputs(r, err)) {
-        m_statusLbl->setStyleSheet("color:#e74c3c;");
+        m_statusLbl->setStyleSheet(themed("color:%error%;"));
         m_statusLbl->setText("Validation error: " + err);
         return;
     }

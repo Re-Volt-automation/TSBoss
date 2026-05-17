@@ -2,6 +2,7 @@
 #include "tscalculator.h"
 #include "noscrollspinbox.h"
 #include "driverdetailwidget.h"
+#include "theme.h"
 #include <complex>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -34,7 +35,9 @@
 #include <QLineEdit>
 #include <QTabWidget>
 #include <QRegularExpression>
+#include <QButtonGroup>
 #include <QCheckBox>
+#include <QRadioButton>
 #include <QSpinBox>
 #include <QSlider>
 #include <QMouseEvent>
@@ -67,27 +70,25 @@ static inline bool isSealed   (const BoxModel &m) { return m.encType == BoxModel
 //  labels use a muted parchment; gridlines are near-invisible at
 //  rest and only assert themselves with the curves on top.
 // ─────────────────────────────────────────────────────────────────
-static const QColor CLR_PAGE_BG ("#0E1116");  // outside plot area
-static const QColor CLR_PLOT_BG ("#14181F");  // inside plot rect
-static const QColor CLR_MAROON  ("#D97706");  // (legacy name) — now amber accent
-static const QColor CLR_GREY_DK ("#E8E1D3");  // axis lines, axis titles, prominent text
-static const QColor CLR_GREY    ("#8A8579");  // tick labels, secondary text
-static const QColor CLR_GREY_LT ("#4A4F58");  // dim/dashed reference lines
-static const QColor CLR_GRID    ("#262C36");  // faint gridlines
+// Plot colour accessors — read live from the global Theme so a theme
+// switch immediately changes the canvas without restarting.
+static inline QColor CLR_PAGE_BG() { return Theme::instance().pageBg(); }
+static inline QColor CLR_PLOT_BG() { return Theme::instance().plotBg(); }
+static inline QColor CLR_ACCENT()  { return Theme::instance().accent(); }
+static inline QColor CLR_GREY_DK() { return Theme::instance().plotAxis(); }
+static inline QColor CLR_GREY()    { return Theme::instance().plotTickLabel(); }
+static inline QColor CLR_GREY_LT() { return Theme::instance().plotDimLine(); }
+static inline QColor CLR_GRID()    { return Theme::instance().gridLine(); }
 
-// Curve palette — saturated, separable on dark canvas. Picked to
-// remain distinguishable when overlaid and at reduced alpha.
-static const QColor kPalette[] = {
-    {"#F59E0B"},   // amber       (primary)
-    {"#5EEAD4"},   // phosphor    (cyan-mint)
-    {"#F472B6"},   // rose pink
-    {"#A3E635"},   // lime
-    {"#7DD3FC"},   // sky blue
-    {"#FCA5A5"},   // peach coral
-    {"#C4B5FD"},   // lavender
-    {"#FDBA74"},   // burnt orange
-};
-static constexpr int kPaletteSize = sizeof(kPalette) / sizeof(kPalette[0]);
+// Curve palette delegates to Theme so light mode gets paper-friendly hues.
+static QColor paletteColor(int i) {
+    const auto pal = Theme::instance().curvePalette();
+    return pal.isEmpty() ? QColor("#D97706") : pal[i % pal.size()];
+}
+static int paletteSize() {
+    const int n = Theme::instance().curvePalette().size();
+    return n > 0 ? n : 1;
+}
 
 // ─────────────────────────────────────────────────────────────────
 //  Added-mass transform — bake an addedMass_g value into the bare
@@ -127,19 +128,37 @@ static bool hasPortedData(const BoxModel &m)
         && m.fb > 0 && m.QL > 0;
 }
 
+// Effective driver parameters scaled for multi-driver wiring mode.
+// Series  (default): BL×N, Re×N — impedances add, force adds.
+// Parallel:          BL×1, Re/N — all coils see same voltage.
+// Separate:          BL×N, Re×1 — each driver driven by its own amp channel.
+// mms and Sd always scale by N (mechanical loads add coherently).
+struct DriverScaling { double BL, Re_eff, mms, Sd; };
+static DriverScaling driverScaling(const BoxModel &m)
+{
+    const double N   = m.numDrivers;
+    const double mms = m.mms_g * 1e-3 * N;
+    const double Sd  = m.Sd_cm2 * 1e-4 * N;
+    switch (m.wiringMode) {
+        case BoxModel::WiringMode::Parallel: return { m.BL,       m.Re / N, mms, Sd };
+        case BoxModel::WiringMode::Separate: return { m.BL * N,   m.Re,     mms, Sd };
+        default:                             return { m.BL * N,   m.Re * N, mms, Sd };
+    }
+}
+
 // Decomposed acoustic output: cone = Sd·v,  port = Up
 struct PortedAmps { Cpx cone, port; };
 
 static PortedAmps portedAmplitudes(const BoxModel &m, double f)
 {
     if (!hasPortedData(m)) return {};
-    const double N      = m.numDrivers;
+    const auto   ds     = driverScaling(m);
     const double omega  = 2.0 * PI * f;
     const double omegab = 2.0 * PI * m.fb;
-    const double mms    = m.mms_g * 1e-3 * N;   // series: combined mass
-    const double Sd     = m.Sd_cm2 * 1e-4 * N;  // combined radiating area
-    const double BL     = m.BL * N;              // combined motor strength
-    const double Re_eff = m.Re * N;              // series wiring: impedances add
+    const double mms    = ds.mms;
+    const double Sd     = ds.Sd;
+    const double BL     = ds.BL;
+    const double Re_eff = ds.Re_eff;
     const double Vb     = m.volumeL * 1e-3;
     const double Cms    = 1.0 / (4.0*PI*PI * m.fs*m.fs * mms);
     const double Rms    = 2.0*PI * m.fs * mms / m.Qms;
@@ -200,13 +219,13 @@ static double portedGroupDelay(const BoxModel &m, double f)
 static double portedImpedance(const BoxModel &m, double f)
 {
     if (!hasPortedData(m)) return m.Re;
-    const double N      = m.numDrivers;
+    const auto   ds     = driverScaling(m);
     const double omega  = 2.0 * PI * f;
     const double omegab = 2.0 * PI * m.fb;
-    const double mms    = m.mms_g * 1e-3 * N;
-    const double Sd     = m.Sd_cm2 * 1e-4 * N;
-    const double BL     = m.BL * N;
-    const double Re_eff = m.Re * N;              // series wiring
+    const double mms    = ds.mms;
+    const double Sd     = ds.Sd;
+    const double BL     = ds.BL;
+    const double Re_eff = ds.Re_eff;
     const double Vb     = m.volumeL * 1e-3;
     const double Cms    = 1.0 / (4.0*PI*PI * m.fs*m.fs * mms);
     const double Rms    = 2.0*PI * m.fs * mms / m.Qms;
@@ -284,12 +303,12 @@ static Cpx chamberPortFlow(const Cpx &Sdv, double Vb_L, double fb, double QL_, d
 static BPAmps bandpassAmplitudes(const BoxModel &m, double f, bool bp6)
 {
     if ((bp6 && !hasBP6Data(m)) || (!bp6 && !hasBP4Data(m))) return {};
-    const double N      = m.numDrivers;
+    const auto   ds     = driverScaling(m);
     const double omega  = 2.0 * PI * f;
-    const double mms    = m.mms_g * 1e-3 * N;
-    const double Sd     = m.Sd_cm2 * 1e-4 * N;
-    const double BL     = m.BL * N;
-    const double Re_eff = m.Re * N;
+    const double mms    = ds.mms;
+    const double Sd     = ds.Sd;
+    const double BL     = ds.BL;
+    const double Re_eff = ds.Re_eff;
     const double Cms    = 1.0 / (4.0*PI*PI * m.fs*m.fs * mms);
     const double Rms    = 2.0*PI * m.fs * mms / m.Qms;
 
@@ -352,12 +371,12 @@ static double bandpassImpedance(const BoxModel &m, double f)
 {
     const bool bp6 = isBP6(m);
     if (bp6 ? !hasBP6Data(m) : !hasBP4Data(m)) return m.Re;
-    const double N      = m.numDrivers;
+    const auto   ds     = driverScaling(m);
     const double omega  = 2.0 * PI * f;
-    const double mms    = m.mms_g * 1e-3 * N;
-    const double Sd     = m.Sd_cm2 * 1e-4 * N;
-    const double BL     = m.BL * N;
-    const double Re_eff = m.Re * N;
+    const double mms    = ds.mms;
+    const double Sd     = ds.Sd;
+    const double BL     = ds.BL;
+    const double Re_eff = ds.Re_eff;
     const double Cms    = 1.0 / (4.0*PI*PI * m.fs*m.fs * mms);
     const double Rms    = 2.0*PI * m.fs * mms / m.Qms;
     const double rearFb = bp6 ? m.fb : 0.0;
@@ -478,13 +497,14 @@ static void drawCursorOverlay(QPainter &p, const QRectF &area,
     if (cursorPx < area.left() || cursorPx > area.right()) return;
 
     // Vertical crosshair — amber, more present than the gridlines
-    p.setPen(QPen(QColor(217, 119, 6, 160), 1.0, Qt::DashLine));
+    QColor crosshair = Theme::instance().accent(); crosshair.setAlpha(160);
+    p.setPen(QPen(crosshair, 1.0, Qt::DashLine));
     p.drawLine(QPointF(cursorPx, area.top()), QPointF(cursorPx, area.bottom()));
 
-    // Dots on curves — filled with curve colour, dark hairline rim
+    // Dots on curves — filled with curve colour, page-bg hairline rim
     for (const auto &e : entries) {
         if (e.yPix < area.top() || e.yPix > area.bottom()) continue;
-        p.setPen(QPen(QColor(14, 17, 22), 1.0));
+        p.setPen(QPen(Theme::instance().pageBg(), 1.0));
         p.setBrush(e.color);
         p.drawEllipse(QPointF(cursorPx, e.yPix), 4.0, 4.0);
     }
@@ -512,16 +532,17 @@ static void drawCursorOverlay(QPainter &p, const QRectF &area,
         bx = int(cursorPx) - boxW - 10;
     const int by = int(area.top()) + 8;
 
-    p.setPen(QPen(QColor("#3A4150"), 1.0));
-    p.setBrush(QColor(20, 24, 31, 230));
+    QColor boxBg = Theme::instance().plotCursorBg(); boxBg.setAlpha(230);
+    p.setPen(QPen(Theme::instance().borderStrong(), 1.0));
+    p.setBrush(boxBg);
     p.drawRoundedRect(bx, by, boxW, boxH, 1, 1);
     // Amber accent rule on the left edge
     p.setPen(Qt::NoPen);
-    p.setBrush(QColor(217, 119, 6));
+    p.setBrush(Theme::instance().accent());
     p.drawRect(bx, by, 2, boxH);
 
     QFont bf = af; bf.setBold(true); p.setFont(bf);
-    p.setPen(QColor("#F5C887"));
+    p.setPen(Theme::instance().accentLight());
     p.drawText(bx + 10, by + 6 + fm.ascent(), freqStr);
 
     p.setFont(af);
@@ -539,6 +560,7 @@ ResponsePlot::ResponsePlot(QWidget *parent) : QWidget(parent)
     setMinimumSize(400, 300);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMouseTracking(true);
+    connect(&Theme::instance(), &Theme::themeChanged, this, [this]{ update(); });
 }
 
 void ResponsePlot::setModels(const QList<BoxModel> &models, int activeIndex)
@@ -559,14 +581,13 @@ void ResponsePlot::setPower(double watts) { m_power = watts; update(); }
 
 void ResponsePlot::paintEvent(QPaintEvent *)
 {
-    const double pwrOffset = (m_power > 0.0) ? 10.0 * std::log10(m_power) : 0.0;
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
-    p.fillRect(rect(), CLR_PAGE_BG);
+    p.fillRect(rect(), CLR_PAGE_BG());
 
     const int ml = 58, mr = 16, mt = 16, mb = 42;
     const QRectF area(ml, mt, width() - ml - mr, height() - mt - mb);
-    p.fillRect(area, CLR_PLOT_BG);
+    p.fillRect(area, CLR_PLOT_BG());
 
     // Determine Y range by scanning the actual curve data for every model
     constexpr int SPL_SCAN = 300;
@@ -576,6 +597,8 @@ void ResponsePlot::paintEvent(QPaintEvent *)
     double yMax = -1e9, yMin = 1e9;
     bool anyValid = false;
     for (const auto &m : m_models) {
+        const double mp = modelPower(m);
+        const double pwrOffset = mp > 0.0 ? 10.0 * std::log10(mp) : 0.0;
         if (isVented(m)) {
             if (!hasPortedData(m) || m.spl <= 0) continue;
             const double ref = portedSplRaw(m, 1000.0);
@@ -591,7 +614,6 @@ void ResponsePlot::paintEvent(QPaintEvent *)
         } else if (isBandpass(m)) {
             const bool bp6 = isBP6(m);
             if (bp6 ? !hasBP6Data(m) : !hasBP4Data(m)) continue;
-            // Find raw peak across the band; normalise so the curve's peak hits m.peakSpl
             double ref = 0.0;
             for (int i = 0; i <= SPL_SCAN; ++i) {
                 const double f = std::pow(10.0, lfMin + (lfMax - lfMin)*i/double(SPL_SCAN));
@@ -642,7 +664,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
 
     // Grid
     QFont small; small.setPointSize(8); p.setFont(small);
-    p.setPen(QPen(CLR_GRID, 1.0));
+    p.setPen(QPen(CLR_GRID(), 1.0));
     const double gFreqs[] = { 20, 30, 50, 70, 100, 200, 300, 500, 700, 1000 };
     for (double f : gFreqs)
         p.drawLine(QPointF(xPx(f), area.top()), QPointF(xPx(f), area.bottom()));
@@ -650,7 +672,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
         p.drawLine(QPointF(area.left(), yPx(db)), QPointF(area.right(), yPx(db)));
 
     // Axis labels
-    p.setPen(CLR_GREY);
+    p.setPen(CLR_GREY());
     for (double f : gFreqs) {
         QString lbl = (f >= 1000.0) ? QString("%1k").arg(f/1000.0,0,'f',0)
                                     : QString::number(int(f));
@@ -663,24 +685,24 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                    QString::number(int(db)));
 
     // Axis titles
-    p.setPen(CLR_GREY_DK);
+    p.setPen(CLR_GREY_DK());
     p.save();
     p.translate(14, area.center().y());
     p.rotate(-90);
     p.drawText(QRectF(-area.height()/2.0, -14.0, area.height(), 28.0),
                Qt::AlignCenter,
-               QString("SPL  (dB, %1 W / 1 m)").arg(m_power, 0, 'g', 3));
+               QString("SPL  (dB, %1 %2 / 1 m)").arg(m_power, 0, 'g', 3).arg(m_perDriverMode ? "W/driver" : "W"));
     p.restore();
     p.drawText(QRectF(area.left(), area.bottom() + 20, area.width(), 16),
                Qt::AlignHCenter, "Frequency (Hz)");
 
     // Axes
-    p.setPen(QPen(CLR_GREY_DK, 1.5));
+    p.setPen(QPen(CLR_GREY_DK(), 1.5));
     p.drawLine(QPointF(area.left(), area.top()), QPointF(area.left(), area.bottom()));
     p.drawLine(QPointF(area.left(), area.bottom()), QPointF(area.right(), area.bottom()));
 
     if (!anyValid) {
-        p.setPen(CLR_GREY_LT);
+        p.setPen(CLR_GREY_LT());
         QFont f; f.setPointSize(12); f.setItalic(true); p.setFont(f);
         p.drawText(area, Qt::AlignCenter,
                    "Add a model to see its frequency response.");
@@ -690,6 +712,8 @@ void ResponsePlot::paintEvent(QPaintEvent *)
     // Draw all curves (inactive first, then active on top)
     auto drawCurve = [&](const BoxModel &m, bool active) {
         constexpr int N = 500;
+        const double mp = modelPower(m);
+        const double pwrOffset = mp > 0.0 ? 10.0 * std::log10(mp) : 0.0;
 
         if (isVented(m)) {
             if (!hasPortedData(m) || m.spl <= 0) return;
@@ -836,7 +860,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
             // Model name row (solid line)
             p.setPen(QPen(c, active ? 2.5 : 1.5, Qt::SolidLine));
             p.drawLine(QPoint(lx, ly + 6), QPoint(lx + 20, ly + 6));
-            p.setPen(active ? CLR_GREY_DK : CLR_GREY);
+            p.setPen(active ? CLR_GREY_DK() : CLR_GREY());
             QFont tf; tf.setPointSize(8); tf.setBold(active); p.setFont(tf);
             p.drawText(QRect(lx + 24, ly, 150, 14), Qt::AlignLeft | Qt::AlignVCenter,
                        m.name);
@@ -848,13 +872,13 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                 // Cone (dashed)
                 p.setPen(QPen(cs, active ? 1.6 : 1.1, Qt::DashLine));
                 p.drawLine(QPoint(lx + 8, ly + 5), QPoint(lx + 24, ly + 5));
-                p.setPen(active ? CLR_GREY : CLR_GREY_LT);
+                p.setPen(active ? CLR_GREY() : CLR_GREY_LT());
                 p.drawText(QRect(lx + 28, ly, 140, 12), Qt::AlignLeft | Qt::AlignVCenter, "Cone");
                 ly += 13;
                 // Port (dotted)
                 p.setPen(QPen(cs, active ? 1.6 : 1.1, Qt::DotLine));
                 p.drawLine(QPoint(lx + 8, ly + 5), QPoint(lx + 24, ly + 5));
-                p.setPen(active ? CLR_GREY : CLR_GREY_LT);
+                p.setPen(active ? CLR_GREY() : CLR_GREY_LT());
                 p.setFont(sf);
                 p.drawText(QRect(lx + 28, ly, 140, 12), Qt::AlignLeft | Qt::AlignVCenter, "Port");
                 ly += 13;
@@ -903,6 +927,8 @@ void ResponsePlot::paintEvent(QPaintEvent *)
         if (am.spl > 0) {
             QFont sf; sf.setPointSize(7); p.setFont(sf);
             QColor lnClr = am.color; lnClr.setAlpha(110);
+            const double mp = modelPower(am);
+            const double pwrOffset = mp > 0.0 ? 10.0 * std::log10(mp) : 0.0;
 
             // +3 dB line
             const double yp3 = am.spl + pwrOffset + 3.0;
@@ -916,10 +942,10 @@ void ResponsePlot::paintEvent(QPaintEvent *)
             }
 
             // Reference (0 dB = rated SPL)
-            p.setPen(QPen(CLR_GREY_LT, 1.0, Qt::DashLine));
+            p.setPen(QPen(CLR_GREY_LT(), 1.0, Qt::DashLine));
             p.drawLine(QPointF(area.left(), yPx(am.spl + pwrOffset)),
                        QPointF(area.right(), yPx(am.spl + pwrOffset)));
-            p.setPen(CLR_GREY);
+            p.setPen(CLR_GREY());
             p.drawText(QRectF(area.right() - 42, yPx(am.spl + pwrOffset) - 13, 40, 12),
                        Qt::AlignRight | Qt::AlignVCenter, "ref");
 
@@ -943,6 +969,8 @@ void ResponsePlot::paintEvent(QPaintEvent *)
         for (int i = 0; i < m_models.size(); ++i) {
             const auto &m = m_models[i];
             bool active = (i == m_activeIdx);
+            const double mp = modelPower(m);
+            const double pwrOffset = mp > 0.0 ? 10.0 * std::log10(mp) : 0.0;
             if (isVented(m)) {
                 if (!hasPortedData(m) || m.spl <= 0) continue;
                 const double ref = portedSplRaw(m, 1000.0);
@@ -993,6 +1021,7 @@ GroupDelayPlot::GroupDelayPlot(QWidget *parent) : QWidget(parent)
     setMinimumSize(400, 280);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMouseTracking(true);
+    connect(&Theme::instance(), &Theme::themeChanged, this, [this]{ update(); });
 }
 
 void GroupDelayPlot::setModels(const QList<BoxModel> &models, int activeIndex)
@@ -1005,11 +1034,11 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
-    p.fillRect(rect(), CLR_PAGE_BG);
+    p.fillRect(rect(), CLR_PAGE_BG());
 
     const int ml = 58, mr = 16, mt = 16, mb = 42;
     const QRectF area(ml, mt, width()-ml-mr, height()-mt-mb);
-    p.fillRect(area, CLR_PLOT_BG);
+    p.fillRect(area, CLR_PLOT_BG());
 
     // Y range: scan the full frequency range to find the true peak group delay
     double yMax = 10.0;
@@ -1063,7 +1092,7 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
 
     // Grid
     QFont small; small.setPointSize(8); p.setFont(small);
-    p.setPen(QPen(CLR_GRID, 1.0));
+    p.setPen(QPen(CLR_GRID(), 1.0));
     const double gFreqs[] = {20,30,50,70,100,200,300,500,700,1000};
     for (double f : gFreqs)
         p.drawLine(QPointF(xPx(f), area.top()), QPointF(xPx(f), area.bottom()));
@@ -1071,7 +1100,7 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
         p.drawLine(QPointF(area.left(), yPx(ms)), QPointF(area.right(), yPx(ms)));
 
     // Axis labels
-    p.setPen(CLR_GREY);
+    p.setPen(CLR_GREY());
     for (double f : gFreqs) {
         QString lbl = f>=1000 ? QString("%1k").arg(f/1000,0,'f',0) : QString::number(int(f));
         p.drawText(QRectF(xPx(f)-20, area.bottom()+2, 40, 14), Qt::AlignHCenter, lbl);
@@ -1081,7 +1110,7 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
                    Qt::AlignRight|Qt::AlignVCenter, QString::number(int(ms)));
 
     // Axis titles
-    p.setPen(CLR_GREY_DK);
+    p.setPen(CLR_GREY_DK());
     p.save();
     p.translate(14, area.center().y());
     p.rotate(-90);
@@ -1092,12 +1121,12 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
                Qt::AlignHCenter, "Frequency (Hz)");
 
     // Axes
-    p.setPen(QPen(CLR_GREY_DK, 1.5));
+    p.setPen(QPen(CLR_GREY_DK(), 1.5));
     p.drawLine(QPointF(area.left(), area.top()), QPointF(area.left(), area.bottom()));
     p.drawLine(QPointF(area.left(), area.bottom()), QPointF(area.right(), area.bottom()));
 
     if (!anyValid) {
-        p.setPen(CLR_GREY_LT);
+        p.setPen(CLR_GREY_LT());
         QFont f; f.setPointSize(12); f.setItalic(true); p.setFont(f);
         p.drawText(area, Qt::AlignCenter, "Add a model to see group delay.");
         return;
@@ -1167,7 +1196,7 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
             QColor c = m.color; if (!active) c.setAlpha(140);
             p.setPen(QPen(c, active ? 2.5 : 1.5));
             p.drawLine(QPoint(lx, ly+6), QPoint(lx+20, ly+6));
-            p.setPen(active ? CLR_GREY_DK : CLR_GREY);
+            p.setPen(active ? CLR_GREY_DK() : CLR_GREY());
             QFont tf; tf.setPointSize(8); tf.setBold(active); p.setFont(tf);
             p.drawText(QRect(lx+24, ly, 150, 14), Qt::AlignLeft|Qt::AlignVCenter, m.name);
             ly += 16;
@@ -1211,6 +1240,7 @@ VoltagePlot::VoltagePlot(QWidget *parent) : QWidget(parent)
     setMinimumSize(400, 280);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMouseTracking(true);
+    connect(&Theme::instance(), &Theme::themeChanged, this, [this]{ update(); });
 }
 
 void VoltagePlot::setModels(const QList<BoxModel> &models, int activeIndex)
@@ -1264,7 +1294,8 @@ static double systemImpedance(const BoxModel &m, double f)
     if (isBandpass(m)) return bandpassImpedance(m, f); // bandpassImpedance scales for N
     const double N = m.numDrivers;
     if (!hasSystemZData(m)) return m.Re * N;
-    // Sealed / IB: use pre-computed Fc (which already incorporates box stiffness and N*Vas)
+    // Sealed / IB: use pre-computed Fc (which already incorporates box stiffness and N*Vas).
+    // Single-driver equivalent circuit; final impedance scaled by wiring mode.
     const double wc      = 2.0 * PI * m.Fc;
     const double mms     = m.mms_g * 1e-3;
     const double Cms_box = 1.0 / (wc * wc * mms);
@@ -1275,7 +1306,12 @@ static double systemImpedance(const BoxModel &m, double f)
     const double Zm2     = Rms_box * Rms_box + Zm_i * Zm_i;
     const double Zr      = m.Re + m.BL * m.BL * Rms_box / Zm2;
     const double Zi      = -m.BL * m.BL * Zm_i / Zm2;
-    return N * std::sqrt(Zr * Zr + Zi * Zi);
+    const double Zsingle = std::sqrt(Zr * Zr + Zi * Zi);
+    // Series: N impedances in series. Parallel: N in parallel. Separate: per-channel = single.
+    double scale = N;
+    if      (m.wiringMode == BoxModel::WiringMode::Parallel)  scale = 1.0 / N;
+    else if (m.wiringMode == BoxModel::WiringMode::Separate)  scale = 1.0;
+    return scale * Zsingle;
 }
 
 // Cone displacement [mm peak] for a given applied power.
@@ -1326,47 +1362,70 @@ void VoltagePlot::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
-    p.fillRect(rect(), CLR_PAGE_BG);
+    p.fillRect(rect(), CLR_PAGE_BG());
 
     const int ml = 58, mr = 54, mt = 16, mb = 42;
     const QRectF area(ml, mt, width()-ml-mr, height()-mt-mb);
-    p.fillRect(area, CLR_PLOT_BG);
+    p.fillRect(area, CLR_PLOT_BG());
 
     const double lfMin = std::log10(F_MIN);
     const double lfMax = std::log10(F_MAX);
 
-    // Y range: scan all models
+    // In Separate mode each driver runs on its own amp, so the voltage curve
+    // represents what a single amp delivers — divide effective power by N.
+    auto perAmpPower = [this](const BoxModel &m) {
+        const double mp = modelPower(m);
+        return (m.wiringMode == BoxModel::WiringMode::Separate)
+            ? mp / std::max(1, m.numDrivers) : mp;
+    };
+    // Current delivered by one amp = V / Z_amp. For series/parallel this is
+    // the single amp's draw; for separate it's the current per amp channel.
+    auto ampCurrent = [&](const BoxModel &m, double f) {
+        const double Z = systemImpedance(m, f);
+        return Z > 0 ? std::sqrt(perAmpPower(m) / Z) : 0.0;
+    };
+
+    // Y ranges: scan all models for both V (left axis) and I (right axis).
     double yMax = 5.0;
+    double iMax = 0.5;
     bool anyValid = false;
     for (const auto &m : m_models) {
         if (!hasSystemZData(m)) continue;
         anyValid = true;
+        const double mp = perAmpPower(m);
         for (int i = 0; i <= 60; ++i) {
             const double lf = lfMin + (lfMax-lfMin)*i/60.0;
             const double f  = std::pow(10.0, lf);
-            const double V  = std::sqrt(m_power * systemImpedance(m, f));
+            const double Z  = systemImpedance(m, f);
+            const double V  = std::sqrt(mp * Z);
+            const double I  = Z > 0 ? std::sqrt(mp / Z) : 0.0;
             yMax = std::max(yMax, V);
+            iMax = std::max(iMax, I);
         }
     }
     double yMin = 0.0;
+    double iMin = 0.0;
     if (m_yMin.has_value() && m_yMax.has_value()) {
         yMin = *m_yMin; yMax = *m_yMax;
     } else {
         yMax = std::ceil(yMax * 1.1 / 5.0) * 5.0;
     }
+    iMax = std::ceil(iMax * 1.1 * 4.0) / 4.0;  // round to 0.25 A
+    if (iMax < 0.5) iMax = 0.5;
 
     auto xPx = [&](double f) { return area.left() + area.width()*(std::log10(f)-lfMin)/(lfMax-lfMin); };
     auto yPx = [&](double v) { return area.top()  + area.height()*(yMax-v)/(yMax-yMin); };
+    auto iPx = [&](double i) { return area.top()  + area.height()*(iMax-i)/(iMax-iMin); };
 
-    // Z label helper: auto decimal places
-    auto fmtZ = [](double z) -> QString {
-        return z < 10.0 ? QString::number(z, 'f', 1)
-                        : QString::number(qRound(z));
+    auto fmtI = [](double a) -> QString {
+        return a < 1.0 ? QString::number(a, 'f', 2)
+             : a < 10.0 ? QString::number(a, 'f', 1)
+                        : QString::number(qRound(a));
     };
 
     // Grid
     QFont small; small.setPointSize(8); p.setFont(small);
-    p.setPen(QPen(CLR_GRID, 1.0));
+    p.setPen(QPen(CLR_GRID(), 1.0));
     const double gFreqs[] = {20,30,50,70,100,200,300,500,700,1000};
     for (double f : gFreqs)
         p.drawLine(QPointF(xPx(f), area.top()), QPointF(xPx(f), area.bottom()));
@@ -1375,7 +1434,7 @@ void VoltagePlot::paintEvent(QPaintEvent *)
         p.drawLine(QPointF(area.left(), yPx(v)), QPointF(area.right(), yPx(v)));
 
     // Left axis labels — Voltage
-    p.setPen(CLR_GREY);
+    p.setPen(CLR_GREY());
     for (double f : gFreqs) {
         QString lbl = f>=1000 ? QString("%1k").arg(f/1000,0,'f',0) : QString::number(int(f));
         p.drawText(QRectF(xPx(f)-20, area.bottom()+2, 40, 14), Qt::AlignHCenter, lbl);
@@ -1384,17 +1443,16 @@ void VoltagePlot::paintEvent(QPaintEvent *)
         p.drawText(QRectF(0, yPx(v)-8, area.left()-4, 16),
                    Qt::AlignRight|Qt::AlignVCenter, QString::number(int(v)));
 
-    // Right axis labels — Impedance (Z = V² / P)
-    for (double v = 0; v <= yMax+0.01; v += yStep) {
-        if (m_power > 0) {
-            const double Z = (v * v) / m_power;
-            p.drawText(QRectF(area.right()+4, yPx(v)-8, mr-8, 16),
-                       Qt::AlignLeft|Qt::AlignVCenter, fmtZ(Z));
-        }
+    // Right axis labels — Current (A) at convenient tick steps.
+    const double iStep = iMax > 20 ? 5.0 : iMax > 8 ? 2.0 : iMax > 4 ? 1.0
+                       : iMax > 2 ? 0.5 : iMax > 1 ? 0.25 : 0.1;
+    for (double a = 0; a <= iMax + 1e-6; a += iStep) {
+        p.drawText(QRectF(area.right()+4, iPx(a)-8, mr-8, 16),
+                   Qt::AlignLeft|Qt::AlignVCenter, fmtI(a));
     }
 
     // Axis titles
-    p.setPen(CLR_GREY_DK);
+    p.setPen(CLR_GREY_DK());
     p.save();
     p.translate(14, area.center().y());
     p.rotate(-90);
@@ -1407,20 +1465,20 @@ void VoltagePlot::paintEvent(QPaintEvent *)
     p.translate(width()-12, area.center().y());
     p.rotate(-90);
     p.drawText(QRectF(-area.height()/2.0, -14.0, area.height(), 28.0),
-               Qt::AlignCenter, "Impedance  (\u03a9)");
+               Qt::AlignCenter, "Current  (A RMS)");
     p.restore();
 
     p.drawText(QRectF(area.left(), area.bottom()+20, area.width(), 16),
                Qt::AlignHCenter, "Frequency (Hz)");
 
     // Axes — left, bottom, and right
-    p.setPen(QPen(CLR_GREY_DK, 1.5));
+    p.setPen(QPen(CLR_GREY_DK(), 1.5));
     p.drawLine(QPointF(area.left(),  area.top()),    QPointF(area.left(),  area.bottom()));
     p.drawLine(QPointF(area.left(),  area.bottom()), QPointF(area.right(), area.bottom()));
     p.drawLine(QPointF(area.right(), area.top()),    QPointF(area.right(), area.bottom()));
 
     if (!anyValid) {
-        p.setPen(CLR_GREY_LT);
+        p.setPen(CLR_GREY_LT());
         QFont f; f.setPointSize(12); f.setItalic(true); p.setFont(f);
         p.drawText(area, Qt::AlignCenter,
                    "Set Rₑ, BL, mms, and Qms to see voltage demand.");
@@ -1429,19 +1487,33 @@ void VoltagePlot::paintEvent(QPaintEvent *)
 
     auto drawCurve = [&](const BoxModel &m, bool active) {
         if (!hasSystemZData(m)) return;
-        QPainterPath curve; bool first = true;
+        const double mp = perAmpPower(m);
+        QPainterPath vPath, iPath;
+        bool vFirst = true, iFirst = true;
         for (int i = 0; i <= 500; ++i) {
             const double lf = lfMin + (lfMax-lfMin)*i/500.0;
             const double f  = std::pow(10.0, lf);
-            const double V  = std::sqrt(m_power * systemImpedance(m, f));
-            if (V > yMax * 1.5) continue;
-            const QPointF pt(xPx(f), yPx(V));
-            if (first) { curve.moveTo(pt); first = false; } else curve.lineTo(pt);
+            const double Z  = systemImpedance(m, f);
+            if (Z <= 0) continue;
+            const double V  = std::sqrt(mp * Z);
+            const double I  = std::sqrt(mp / Z);
+            if (V <= yMax * 1.5) {
+                const QPointF pt(xPx(f), yPx(V));
+                if (vFirst) { vPath.moveTo(pt); vFirst = false; } else vPath.lineTo(pt);
+            }
+            if (I <= iMax * 1.5) {
+                const QPointF pt(xPx(f), iPx(I));
+                if (iFirst) { iPath.moveTo(pt); iFirst = false; } else iPath.lineTo(pt);
+            }
         }
         QColor c = m.color; if (!active) c.setAlpha(100);
-        p.setPen(QPen(c, active ? 3.0 : 1.8));
         p.setBrush(Qt::NoBrush);
-        p.drawPath(curve);
+        // Voltage — solid
+        p.setPen(QPen(c, active ? 3.0 : 1.8));
+        p.drawPath(vPath);
+        // Current — dashed, slightly thinner
+        p.setPen(QPen(c, active ? 2.0 : 1.2, Qt::DashLine));
+        p.drawPath(iPath);
     };
 
     p.setClipRect(area);
@@ -1462,7 +1534,7 @@ void VoltagePlot::paintEvent(QPaintEvent *)
             QColor c = m.color; if (!active) c.setAlpha(140);
             p.setPen(QPen(c, active ? 2.5 : 1.5));
             p.drawLine(QPoint(lx, ly+6), QPoint(lx+20, ly+6));
-            p.setPen(active ? CLR_GREY_DK : CLR_GREY);
+            p.setPen(active ? CLR_GREY_DK() : CLR_GREY());
             QFont tf; tf.setPointSize(8); tf.setBold(active); p.setFont(tf);
             p.drawText(QRect(lx+24, ly, 160, 14), Qt::AlignLeft|Qt::AlignVCenter, m.name);
             ly += 16;
@@ -1476,10 +1548,16 @@ void VoltagePlot::paintEvent(QPaintEvent *)
             const auto &m = m_models[i];
             if (!hasSystemZData(m)) continue;
             const double Z = systemImpedance(m, m_cursorFreq);
-            const double V = std::sqrt(m_power * Z);
+            if (Z <= 0) continue;
+            const double mp = perAmpPower(m);
+            const double V = std::sqrt(mp * Z);
+            const double I = std::sqrt(mp / Z);
+            const QString zStr = Z < 10.0 ? QString::number(Z, 'f', 1)
+                                          : QString::number(qRound(Z));
             entries.append({m.color, i == m_activeIdx, m.name,
                             yPx(V),
-                            QString("%1 V  |  %2 \u03a9").arg(V, 0, 'f', 2).arg(fmtZ(Z))});
+                            QString("%1 V  |  %2 A  |  %3 \u03a9")
+                                .arg(V, 0, 'f', 2).arg(I, 0, 'f', 2).arg(zStr)});
         }
         drawCursorOverlay(p, area, xPx(m_cursorFreq), m_cursorFreq, entries);
     }
@@ -1503,6 +1581,7 @@ ExcursionPlot::ExcursionPlot(QWidget *parent) : QWidget(parent)
     setMinimumSize(400, 280);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMouseTracking(true);
+    connect(&Theme::instance(), &Theme::themeChanged, this, [this]{ update(); });
 }
 
 void ExcursionPlot::setModels(const QList<BoxModel> &models, int activeIndex)
@@ -1524,11 +1603,11 @@ void ExcursionPlot::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
-    p.fillRect(rect(), CLR_PAGE_BG);
+    p.fillRect(rect(), CLR_PAGE_BG());
 
     const int ml = 58, mr = 16, mt = 16, mb = 42;
     const QRectF area(ml, mt, width()-ml-mr, height()-mt-mb);
-    p.fillRect(area, CLR_PLOT_BG);
+    p.fillRect(area, CLR_PLOT_BG());
 
     const double lfMin = std::log10(F_MIN);
     const double lfMax = std::log10(F_MAX);
@@ -1539,9 +1618,10 @@ void ExcursionPlot::paintEvent(QPaintEvent *)
     for (const auto &m : m_models) {
         if (!hasExcursionData(m)) continue;
         anyValid = true;
+        const double mp = modelPower(m);
         for (int i = 0; i <= 80; ++i) {
             const double f  = std::pow(10.0, lfMin + (lfMax-lfMin)*i/80.0);
-            const double x  = coneDisplacement_mm(m, f, m_power);
+            const double x  = coneDisplacement_mm(m, f, mp);
             if (std::isfinite(x)) yMax = std::max(yMax, x);
         }
         if (m.xmax_mm > 0) yMax = std::max(yMax, m.xmax_mm);
@@ -1568,7 +1648,7 @@ void ExcursionPlot::paintEvent(QPaintEvent *)
 
     // Grid
     QFont small; small.setPointSize(8); p.setFont(small);
-    p.setPen(QPen(CLR_GRID, 1.0));
+    p.setPen(QPen(CLR_GRID(), 1.0));
     const double gFreqs[] = {20,30,50,70,100,200,300,500,700,1000};
     for (double f : gFreqs)
         p.drawLine(QPointF(xPx(f), area.top()), QPointF(xPx(f), area.bottom()));
@@ -1576,7 +1656,7 @@ void ExcursionPlot::paintEvent(QPaintEvent *)
         p.drawLine(QPointF(area.left(), yPx(v)), QPointF(area.right(), yPx(v)));
 
     // Axis labels
-    p.setPen(CLR_GREY);
+    p.setPen(CLR_GREY());
     for (double f : gFreqs) {
         QString lbl = f>=1000 ? QString("%1k").arg(f/1000,0,'f',0) : QString::number(int(f));
         p.drawText(QRectF(xPx(f)-20, area.bottom()+2, 40, 14), Qt::AlignHCenter, lbl);
@@ -1590,7 +1670,7 @@ void ExcursionPlot::paintEvent(QPaintEvent *)
     }
 
     // Axis titles
-    p.setPen(CLR_GREY_DK);
+    p.setPen(CLR_GREY_DK());
     p.save();
     p.translate(14, area.center().y());
     p.rotate(-90);
@@ -1601,12 +1681,12 @@ void ExcursionPlot::paintEvent(QPaintEvent *)
                Qt::AlignHCenter, "Frequency (Hz)");
 
     // Axes
-    p.setPen(QPen(CLR_GREY_DK, 1.5));
+    p.setPen(QPen(CLR_GREY_DK(), 1.5));
     p.drawLine(QPointF(area.left(), area.top()),    QPointF(area.left(),  area.bottom()));
     p.drawLine(QPointF(area.left(), area.bottom()), QPointF(area.right(), area.bottom()));
 
     if (!anyValid) {
-        p.setPen(CLR_GREY_LT);
+        p.setPen(CLR_GREY_LT());
         QFont f; f.setPointSize(12); f.setItalic(true); p.setFont(f);
         p.drawText(area, Qt::AlignCenter,
                    "Set Rₑ, BL, mms, Qms, and Fc to see cone excursion.");
@@ -1633,10 +1713,11 @@ void ExcursionPlot::paintEvent(QPaintEvent *)
     // Curves
     auto drawCurve = [&](const BoxModel &m, bool active) {
         if (!hasExcursionData(m)) return;
+        const double mp = modelPower(m);
         QPainterPath curve; bool first = true;
         for (int i = 0; i <= 500; ++i) {
             const double f = std::pow(10.0, lfMin + (lfMax-lfMin)*i/500.0);
-            const double x = coneDisplacement_mm(m, f, m_power);
+            const double x = coneDisplacement_mm(m, f, mp);
             if (!std::isfinite(x) || x > yMax * 1.5) continue;
             const QPointF pt(xPx(f), yPx(x));
             if (first) { curve.moveTo(pt); first = false; } else curve.lineTo(pt);
@@ -1665,7 +1746,7 @@ void ExcursionPlot::paintEvent(QPaintEvent *)
             QColor c = m.color; if (!active) c.setAlpha(140);
             p.setPen(QPen(c, active ? 2.5 : 1.5));
             p.drawLine(QPoint(lx, ly+6), QPoint(lx+20, ly+6));
-            p.setPen(active ? CLR_GREY_DK : CLR_GREY);
+            p.setPen(active ? CLR_GREY_DK() : CLR_GREY());
             QFont tf; tf.setPointSize(8); tf.setBold(active); p.setFont(tf);
             QString label = m.name;
             if (m.xmax_mm > 0 || m.xlim_mm > 0) {
@@ -1689,7 +1770,7 @@ void ExcursionPlot::paintEvent(QPaintEvent *)
         for (int i = 0; i < m_models.size(); ++i) {
             const auto &m = m_models[i];
             if (!hasExcursionData(m)) continue;
-            const double x = coneDisplacement_mm(m, m_cursorFreq, m_power);
+            const double x = coneDisplacement_mm(m, m_cursorFreq, modelPower(m));
             if (!std::isfinite(x)) continue;
             QString valStr = QString("%1 mm").arg(x, 0, 'f', 2);
             if (m.xmax_mm > 0 && x > 0)
@@ -1726,7 +1807,9 @@ static double portAirVelocity(const BoxModel &m, double f, double power)
     const double Ap = portArea_m2(m);
     if (Ap <= 0) return 0.0;
     const int    N  = std::max(1, m.numPorts);
-    const double V  = std::sqrt(power * m.Re);
+    const double Z  = portedImpedance(m, f);
+    if (Z <= 0) return 0.0;
+    const double V  = std::sqrt(power * Z);
     const auto   a  = portedAmplitudes(m, f);
     return std::abs(a.port) * V / (N * Ap);
 }
@@ -1741,6 +1824,7 @@ PortVelocityPlot::PortVelocityPlot(QWidget *parent) : QWidget(parent)
     setMinimumSize(400, 280);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMouseTracking(true);
+    connect(&Theme::instance(), &Theme::themeChanged, this, [this]{ update(); });
 }
 
 void PortVelocityPlot::setModels(const QList<BoxModel> &models, int activeIndex)
@@ -1753,11 +1837,11 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
-    p.fillRect(rect(), CLR_PAGE_BG);
+    p.fillRect(rect(), CLR_PAGE_BG());
 
     const int ml = 58, mr = 16, mt = 16, mb = 42;
     const QRectF area(ml, mt, width()-ml-mr, height()-mt-mb);
-    p.fillRect(area, CLR_PLOT_BG);
+    p.fillRect(area, CLR_PLOT_BG());
 
     const double lfMin = std::log10(F_MIN);
     const double lfMax = std::log10(F_MAX);
@@ -1768,9 +1852,10 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
     for (const auto &m : m_models) {
         if (!hasPortVelocityData(m)) continue;
         anyValid = true;
+        const double mp = modelPower(m);
         for (int i = 0; i <= 80; ++i) {
             const double f = std::pow(10.0, lfMin + (lfMax-lfMin)*i/80.0);
-            const double v = portAirVelocity(m, f, m_power);
+            const double v = portAirVelocity(m, f, mp);
             if (std::isfinite(v)) yMax = std::max(yMax, v);
         }
     }
@@ -1796,7 +1881,7 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
 
     // Grid
     QFont small; small.setPointSize(8); p.setFont(small);
-    p.setPen(QPen(CLR_GRID, 1.0));
+    p.setPen(QPen(CLR_GRID(), 1.0));
     const double gFreqs[] = {20,30,50,70,100,200,300,500,700,1000};
     for (double f : gFreqs)
         p.drawLine(QPointF(xPx(f), area.top()), QPointF(xPx(f), area.bottom()));
@@ -1805,7 +1890,7 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
         p.drawLine(QPointF(area.left(), yPx(v)), QPointF(area.right(), yPx(v)));
 
     // Axis labels
-    p.setPen(CLR_GREY);
+    p.setPen(CLR_GREY());
     for (double f : gFreqs) {
         QString lbl = f>=1000 ? QString("%1k").arg(f/1000,0,'f',0) : QString::number(int(f));
         p.drawText(QRectF(xPx(f)-20, area.bottom()+2, 40, 14), Qt::AlignHCenter, lbl);
@@ -1819,16 +1904,16 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
     // Reference line at 17 m/s (chuffing onset)
     constexpr double CHUFF_MS = 17.0;
     if (CHUFF_MS >= yMin && CHUFF_MS <= yMax) {
-        p.setPen(QPen(QColor("#c0392b"), 1.0, Qt::DashLine));
+        p.setPen(QPen(Theme::instance().statusError(), 1.0, Qt::DashLine));
         p.drawLine(QPointF(area.left(), yPx(CHUFF_MS)), QPointF(area.right(), yPx(CHUFF_MS)));
         QFont rf; rf.setPointSize(7); p.setFont(rf);
-        p.setPen(QColor("#c0392b"));
+        p.setPen(Theme::instance().statusError());
         p.drawText(QRectF(area.left()+4, yPx(CHUFF_MS)-13, 80, 12),
                    Qt::AlignLeft|Qt::AlignVCenter, "17 m/s limit");
     }
 
     // Axis titles
-    p.setPen(CLR_GREY_DK);
+    p.setPen(CLR_GREY_DK());
     p.save();
     p.translate(14, area.center().y());
     p.rotate(-90);
@@ -1839,12 +1924,12 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
                Qt::AlignHCenter, "Frequency (Hz)");
 
     // Axes
-    p.setPen(QPen(CLR_GREY_DK, 1.5));
+    p.setPen(QPen(CLR_GREY_DK(), 1.5));
     p.drawLine(QPointF(area.left(), area.top()),    QPointF(area.left(),  area.bottom()));
     p.drawLine(QPointF(area.left(), area.bottom()), QPointF(area.right(), area.bottom()));
 
     if (!anyValid) {
-        p.setPen(CLR_GREY_LT);
+        p.setPen(CLR_GREY_LT());
         QFont f; f.setPointSize(12); f.setItalic(true); p.setFont(f);
         p.drawText(area, Qt::AlignCenter, "Select a vented enclosure to see port velocity.");
         return;
@@ -1853,10 +1938,11 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
     // Curves
     auto drawCurve = [&](const BoxModel &m, bool active) {
         if (!hasPortVelocityData(m)) return;
+        const double mp = modelPower(m);
         QPainterPath curve; bool first = true;
         for (int i = 0; i <= 500; ++i) {
             const double f = std::pow(10.0, lfMin + (lfMax-lfMin)*i/500.0);
-            const double v = portAirVelocity(m, f, m_power);
+            const double v = portAirVelocity(m, f, mp);
             if (!std::isfinite(v)) continue;
             const QPointF pt(xPx(f), yPx(v));
             if (first) { curve.moveTo(pt); first = false; } else curve.lineTo(pt);
@@ -1885,7 +1971,7 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
             QColor c = m.color; if (!active) c.setAlpha(140);
             p.setPen(QPen(c, active ? 2.5 : 1.5));
             p.drawLine(QPoint(lx, ly+6), QPoint(lx+20, ly+6));
-            p.setPen(active ? CLR_GREY_DK : CLR_GREY);
+            p.setPen(active ? CLR_GREY_DK() : CLR_GREY());
             QFont tf; tf.setPointSize(8); tf.setBold(active); p.setFont(tf);
             p.drawText(QRect(lx+24, ly, 150, 14), Qt::AlignLeft|Qt::AlignVCenter, m.name);
             ly += 16;
@@ -1898,7 +1984,7 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
         for (int i = 0; i < m_models.size(); ++i) {
             const auto &m = m_models[i];
             if (!hasPortVelocityData(m)) continue;
-            const double v = portAirVelocity(m, m_cursorFreq, m_power);
+            const double v = portAirVelocity(m, m_cursorFreq, modelPower(m));
             if (!std::isfinite(v)) continue;
             entries.append({m.color, i == m_activeIdx, m.name,
                             yPx(v), QString("%1 m/s").arg(v, 0, 'f', 2)});
@@ -1923,9 +2009,9 @@ static QLabel *mkFormLabel(const QString &t)
 static QLabel *mkValue(const QString &init = QStringLiteral("–"))
 {
     auto *l = new QLabel(init);
-    l->setStyleSheet(
-        "color:#E8E1D3; font-family:'IBM Plex Mono',monospace;"
-        "font-size:9.5pt;");
+    l->setStyleSheet(themed(
+        "color:%text%; font-family:'IBM Plex Mono',monospace;"
+        "font-size:9.5pt;"));
     return l;
 }
 
@@ -1978,41 +2064,65 @@ EnclosureWidget::EnclosureWidget(DriverDatabase *db, QWidget *parent)
 {
     buildUi();
     refreshDriverList();
+    // T/S spinboxes carry an inline stylesheet for the lock/unlock visual,
+    // so a live theme switch must re-run that styling.
+    connect(&Theme::instance(), &Theme::themeChanged, this, [this] {
+        if (m_tsLocked) lockTsFields(); else unlockTsFields();
+    });
+}
+
+void EnclosureWidget::applyPerDriverMode(bool on)
+{
+    // Setting the "Per Driver" radio also drives the paired "Total" radio
+    // (mutual exclusion inside the QButtonGroup), so a single setChecked
+    // per pair is enough to keep both halves of each tab in sync.
+    for (auto *rb : {m_perDriverPower, m_perDriverPowerVolt, m_perDriverPowerExc, m_perDriverPowerPV}) {
+        if (rb) { rb->blockSignals(true); rb->setChecked(on); rb->blockSignals(false); }
+    }
+    if (m_splPlot) m_splPlot->setPerDriverMode(on);
+    if (m_vpPlot)  m_vpPlot ->setPerDriverMode(on);
+    if (m_excPlot) m_excPlot->setPerDriverMode(on);
+    if (m_pvPlot)  m_pvPlot ->setPerDriverMode(on);
 }
 
 QColor EnclosureWidget::nextColor() const
 {
     // Pick the first palette color not already in use
-    for (int i = 0; i < kPaletteSize; ++i) {
+    const int n = paletteSize();
+    for (int i = 0; i < n; ++i) {
+        const QColor c = paletteColor(i);
         bool used = false;
         for (const auto &m : m_models)
-            if (m.color == kPalette[i]) { used = true; break; }
-        if (!used) return kPalette[i];
+            if (m.color == c) { used = true; break; }
+        if (!used) return c;
     }
-    return kPalette[m_models.size() % kPaletteSize];
+    return paletteColor(m_models.size());
 }
 
 void EnclosureWidget::buildUi()
 {
     // ── LEFT PANEL: model list + preset controls ─────────────────
     auto *leftPanel = new QWidget;
+    leftPanel->setObjectName("encLeftPanel");
     leftPanel->setMinimumWidth(150);
     leftPanel->setMaximumWidth(400);
-    leftPanel->setStyleSheet("background:#0E1116;");
     auto *leftVb = new QVBoxLayout(leftPanel);
     leftVb->setContentsMargins(8, 10, 8, 8);
     leftVb->setSpacing(8);
 
     auto *leftTitle = new QLabel("MODELS");
-    leftTitle->setStyleSheet(
+    leftTitle->setStyleSheet(themed(
         "font-family:'IBM Plex Sans',sans-serif;"
-        "font-size:8.5pt; font-weight:600; color:#D97706;"
+        "font-size:8.5pt; font-weight:600; color:%accent%;"
         "letter-spacing:2px; padding:2px 0 6px 0;"
-        "border-bottom:1px solid #262C36;");
+        "border-bottom:1px solid %border%;"));
     leftVb->addWidget(leftTitle);
 
     m_modelList = new QListWidget;
     // Inherit theme QSS — no override
+    m_modelList->setDragDropMode(QAbstractItemView::InternalMove);
+    m_modelList->setDefaultDropAction(Qt::MoveAction);
+    m_modelList->setSelectionMode(QAbstractItemView::SingleSelection);
     leftVb->addWidget(m_modelList, 1);
 
     // Model buttons — compact secondary style
@@ -2023,50 +2133,56 @@ void EnclosureWidget::buildUi()
             auto *b = new QPushButton(text);
             const QString accent = primary ? "#D97706" : "#3A4150";
             const QString hover  = primary ? "#F59E0B" : "#D97706";
-            b->setStyleSheet(QString(
-                "QPushButton{background:transparent;color:#E8E1D3;"
+            b->setStyleSheet(themed(QString(
+                "QPushButton{background:transparent;color:%text%;"
                 "border:1px solid %1;border-radius:0px;"
                 "padding:5px 10px;font-size:8pt;letter-spacing:0.5px;}"
-                "QPushButton:hover{border-color:%2;color:#F5C887;}"
-                "QPushButton:pressed{background:%1;color:#0E1116;}"
-            ).arg(accent, hover));
+                "QPushButton:hover{border-color:%2;color:%accentLt%;}"
+                "QPushButton:pressed{background:%1;color:%page%;}"
+            ).arg(accent, hover)));
             return b;
         };
-        auto *btnAdd    = mkBtn("+ ADD",    true);
-        auto *btnRemove = mkBtn("− REMOVE", false);
-        auto *btnRename = mkBtn("RENAME",   false);
+        auto *btnAdd    = mkBtn("+ ADD",     true);
+        auto *btnRemove = mkBtn("− REMOVE",  false);
+        auto *btnDup    = mkBtn("DUPLICATE", false);
+        auto *btnRename = mkBtn("RENAME",    false);
         hb->addWidget(btnAdd);
         hb->addWidget(btnRemove);
-        hb->addWidget(btnRename);
+        auto *hb2 = new QHBoxLayout;
+        hb2->setSpacing(4);
+        hb2->addWidget(btnDup);
+        hb2->addWidget(btnRename);
         leftVb->addLayout(hb);
+        leftVb->addLayout(hb2);
 
         connect(btnAdd,    &QPushButton::clicked, this, &EnclosureWidget::onAddModel);
+        connect(btnDup,    &QPushButton::clicked, this, &EnclosureWidget::onDuplicateModel);
         connect(btnRemove, &QPushButton::clicked, this, &EnclosureWidget::onRemoveModel);
         connect(btnRename, &QPushButton::clicked, this, &EnclosureWidget::onRenameModel);
     }
 
     // Separator
     auto *sep = new QFrame; sep->setFrameShape(QFrame::HLine);
-    sep->setStyleSheet("color:#262C36; background:#262C36; max-height:1px;");
+    sep->setStyleSheet(themed("color:%border%; background:%border%; max-height:1px;"));
     leftVb->addWidget(sep);
 
     // File save/load section
     {
         auto *fileLbl = new QLabel("FILES");
-        fileLbl->setStyleSheet(
+        fileLbl->setStyleSheet(themed(
             "font-family:'IBM Plex Sans',sans-serif;"
-            "font-size:8.5pt; font-weight:600; color:#D97706;"
-            "letter-spacing:2px; padding:2px 0 4px 0;");
+            "font-size:8.5pt; font-weight:600; color:%accent%;"
+            "letter-spacing:2px; padding:2px 0 4px 0;"));
         leftVb->addWidget(fileLbl);
 
         auto mkBtn = [](const QString &text) {
             auto *b = new QPushButton(text);
-            b->setStyleSheet(
-                "QPushButton{background:transparent;color:#BAB3A4;"
-                "border:1px solid #262C36;border-radius:0px;"
+            b->setStyleSheet(themed(
+                "QPushButton{background:transparent;color:%text2%;"
+                "border:1px solid %border%;border-radius:0px;"
                 "padding:5px 10px;font-size:8pt;text-align:left;}"
-                "QPushButton:hover{border-color:#D97706;color:#E8E1D3;}"
-                "QPushButton:pressed{background:#1A1F28;}");
+                "QPushButton:hover{border-color:%accent%;color:%text%;}"
+                "QPushButton:pressed{background:%input%;}"));
             return b;
         };
         auto *btnSaveModel   = mkBtn("Save Model  ·  .tsbox");
@@ -2077,7 +2193,7 @@ void EnclosureWidget::buildUi()
         leftVb->addWidget(btnLoadModel);
 
         auto *sep2 = new QFrame; sep2->setFrameShape(QFrame::HLine);
-        sep2->setStyleSheet("color:#262C36; background:#262C36; max-height:1px;");
+        sep2->setStyleSheet(themed("color:%border%; background:%border%; max-height:1px;"));
         leftVb->addWidget(sep2);
 
         leftVb->addWidget(btnSaveProject);
@@ -2093,8 +2209,8 @@ void EnclosureWidget::buildUi()
 
     m_statusLbl = new QLabel;
     m_statusLbl->setWordWrap(true);
-    m_statusLbl->setStyleSheet(
-        "color:#FCA5A5; font-family:'IBM Plex Mono',monospace; font-size:8pt;");
+    m_statusLbl->setStyleSheet(themed(
+        "color:%error%; font-family:'IBM Plex Mono',monospace; font-size:8pt;"));
     leftVb->addWidget(m_statusLbl);
 
     // ── RIGHT PANEL: plot tabs (top) + params (bottom) ──────────
@@ -2116,6 +2232,26 @@ void EnclosureWidget::buildUi()
         return s;
     };
 
+    // Helper: build a "Per Driver" / "Total" radio pair, return the "Per Driver"
+    // radio. The pair shares a QButtonGroup so they're mutually exclusive; the
+    // returned pointer is the canonical "is per-driver mode on?" toggle source.
+    auto mkPerDriverRadios = [this](QHBoxLayout *into) -> QRadioButton * {
+        auto *perDrv = new QRadioButton("Per Driver");
+        auto *total  = new QRadioButton("Total");
+        perDrv->setChecked(true);
+        auto *grp = new QButtonGroup(this);
+        grp->addButton(perDrv, 1);
+        grp->addButton(total,  0);
+        const QString style = themed(
+            "QRadioButton{color:%accent%; font-family:'IBM Plex Sans',sans-serif;"
+            " font-size:8pt; padding-left:8px;}");
+        perDrv->setStyleSheet(style);
+        total ->setStyleSheet(style);
+        into->addWidget(perDrv);
+        into->addWidget(total);
+        return perDrv;
+    };
+
     // Voltage tab: power control + plot
     auto *voltTab = new QWidget;
     {
@@ -2124,12 +2260,14 @@ void EnclosureWidget::buildUi()
         vb->setSpacing(4);
         auto *hb = new QHBoxLayout;
         auto *pwrLbl = new QLabel("APPLIED POWER");
-        pwrLbl->setStyleSheet(
-            "color:#D97706; font-family:'IBM Plex Sans',sans-serif;"
+        pwrLbl->setStyleSheet(themed(
+            "color:%accent%; font-family:'IBM Plex Sans',sans-serif;"
             "font-weight:600; font-size:8.5pt; letter-spacing:1.5px;"
-            "padding-right:8px;");
+            "padding-right:8px;"));
         m_power = mkPowerSpin();
-        hb->addWidget(pwrLbl); hb->addWidget(m_power); hb->addStretch();
+        hb->addWidget(pwrLbl); hb->addWidget(m_power);
+        m_perDriverPowerVolt = mkPerDriverRadios(hb);
+        hb->addStretch();
         vb->addLayout(hb);
         vb->addWidget(m_vpPlot, 1);
         connect(m_power, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
@@ -2152,12 +2290,14 @@ void EnclosureWidget::buildUi()
         vb->setSpacing(4);
         auto *hb = new QHBoxLayout;
         auto *pwrLbl = new QLabel("APPLIED POWER");
-        pwrLbl->setStyleSheet(
-            "color:#D97706; font-family:'IBM Plex Sans',sans-serif;"
+        pwrLbl->setStyleSheet(themed(
+            "color:%accent%; font-family:'IBM Plex Sans',sans-serif;"
             "font-weight:600; font-size:8.5pt; letter-spacing:1.5px;"
-            "padding-right:8px;");
+            "padding-right:8px;"));
         m_excPower = mkPowerSpin();
-        hb->addWidget(pwrLbl); hb->addWidget(m_excPower); hb->addStretch();
+        hb->addWidget(pwrLbl); hb->addWidget(m_excPower);
+        m_perDriverPowerExc = mkPerDriverRadios(hb);
+        hb->addStretch();
         vb->addLayout(hb);
         vb->addWidget(m_excPlot, 1);
         connect(m_excPower, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
@@ -2180,12 +2320,14 @@ void EnclosureWidget::buildUi()
         vb->setSpacing(4);
         auto *hb = new QHBoxLayout;
         auto *pwrLbl = new QLabel("APPLIED POWER");
-        pwrLbl->setStyleSheet(
-            "color:#D97706; font-family:'IBM Plex Sans',sans-serif;"
+        pwrLbl->setStyleSheet(themed(
+            "color:%accent%; font-family:'IBM Plex Sans',sans-serif;"
             "font-weight:600; font-size:8.5pt; letter-spacing:1.5px;"
-            "padding-right:8px;");
+            "padding-right:8px;"));
         m_pvPower = mkPowerSpin();
-        hb->addWidget(pwrLbl); hb->addWidget(m_pvPower); hb->addStretch();
+        hb->addWidget(pwrLbl); hb->addWidget(m_pvPower);
+        m_perDriverPowerPV = mkPerDriverRadios(hb);
+        hb->addStretch();
         vb->addLayout(hb);
         vb->addWidget(m_pvPlot, 1);
         connect(m_pvPower, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
@@ -2208,12 +2350,14 @@ void EnclosureWidget::buildUi()
         vb->setSpacing(4);
         auto *hb = new QHBoxLayout;
         auto *pwrLbl = new QLabel("APPLIED POWER");
-        pwrLbl->setStyleSheet(
-            "color:#D97706; font-family:'IBM Plex Sans',sans-serif;"
+        pwrLbl->setStyleSheet(themed(
+            "color:%accent%; font-family:'IBM Plex Sans',sans-serif;"
             "font-weight:600; font-size:8.5pt; letter-spacing:1.5px;"
-            "padding-right:8px;");
+            "padding-right:8px;"));
         m_splPower = mkPowerSpin();
-        hb->addWidget(pwrLbl); hb->addWidget(m_splPower); hb->addStretch();
+        hb->addWidget(pwrLbl); hb->addWidget(m_splPower);
+        m_perDriverPower = mkPerDriverRadios(hb);
+        hb->addStretch();
         vb->addLayout(hb);
         vb->addWidget(m_splPlot, 1);
         connect(m_splPower, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
@@ -2234,29 +2378,38 @@ void EnclosureWidget::buildUi()
     // without this the curves don't match the displayed power
     // until the user nudges the spin.
     {
-        const double w = m_power->value();  // all four spins agree
+        const double w = m_power->value();  // all four spins agree; per-driver not active yet (no model loaded)
         m_vpPlot ->setPower(w);
         m_excPlot->setPower(w);
         m_pvPlot ->setPower(w);
         m_splPlot->setPower(w);
     }
 
+    // All per-driver radios sync together and update plot mode. We listen on
+    // the "Per Driver" half — when the user picks "Total", QButtonGroup
+    // exclusivity flips this one off and the lambda fires with on=false.
+    for (auto *rb : {m_perDriverPower, m_perDriverPowerVolt, m_perDriverPowerExc, m_perDriverPowerPV}) {
+        connect(rb, &QRadioButton::toggled, this, [this](bool on) { applyPerDriverMode(on); });
+    }
+
+    // Set initial per-driver mode on plots (checkboxes default to checked)
+    m_splPlot->setPerDriverMode(true);
+    m_vpPlot ->setPerDriverMode(true);
+    m_excPlot->setPerDriverMode(true);
+    m_pvPlot ->setPerDriverMode(true);
+
     m_plotTabs = new QTabWidget;
-    // Inherits global tab QSS; override only the pane to remove the
-    // outline since the plot canvas already has its own dark surface.
-    m_plotTabs->setStyleSheet("QTabWidget::pane{border:none;background:#0E1116;}");
+    m_plotTabs->setObjectName("encPlotTabs");
     m_plotTabs->addTab(splTab,    "SPL");           // index 0
     m_plotTabs->addTab(m_gdPlot,  "GROUP DELAY");   // index 1
-    m_plotTabs->addTab(voltTab,   "VOLTAGE");       // index 2
+    m_plotTabs->addTab(voltTab,   "POWER");         // index 2 (voltage + current)
     m_plotTabs->addTab(excTab,    "EXCURSION");     // index 3
     m_plotTabs->addTab(pvTab,     "PORT V");        // index 4
     m_plotTabs->setTabEnabled(4, false);              // enabled only for vented
 
     // Bottom parameter strip
     auto *paramPanel = new QWidget;
-    paramPanel->setStyleSheet(
-        "background:#0E1116;"
-        "border-top:1px solid #262C36;");
+    paramPanel->setObjectName("encParamPanel");
     auto *paramMain  = new QHBoxLayout(paramPanel);
     paramMain->setContentsMargins(8, 6, 8, 6);
     paramMain->setSpacing(12);
@@ -2266,26 +2419,26 @@ void EnclosureWidget::buildUi()
         auto *col = new QVBoxLayout;
         col->setSpacing(4);
         auto *lbl = new QLabel("DRIVER");
-        lbl->setStyleSheet(
+        lbl->setStyleSheet(themed(
             "font-family:'IBM Plex Sans',sans-serif; font-weight:600;"
-            "font-size:8.5pt; color:#D97706; letter-spacing:1.5px;");
+            "font-size:8.5pt; color:%accent%; letter-spacing:1.5px;"));
         m_driverCombo = new QComboBox;
         m_driverCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         m_driverCombo->setMinimumWidth(180);
         auto *btnReset = new QPushButton("Reset");
-        btnReset->setStyleSheet(
-            "QPushButton{background:transparent;color:#BAB3A4;"
-            "border:1px solid #3A4150;border-radius:0px;"
+        btnReset->setStyleSheet(themed(
+            "QPushButton{background:transparent;color:%text2%;"
+            "border:1px solid %border2%;border-radius:0px;"
             "padding:3px 10px;font-size:8pt;}"
-            "QPushButton:hover{border-color:#D97706;color:#F5C887;}");
+            "QPushButton:hover{border-color:%accent%;color:%accentLt%;}"));
 
         m_btnViewDriver = new QPushButton("View Parameters…");
-        m_btnViewDriver->setStyleSheet(
-            "QPushButton{background:#D97706;color:#0E1116;"
-            "border:1px solid #D97706;border-radius:0px;"
+        m_btnViewDriver->setStyleSheet(themed(
+            "QPushButton{background:%accent%;color:%page%;"
+            "border:1px solid %accent%;border-radius:0px;"
             "padding:3px 10px;font-size:8pt;font-weight:600;}"
-            "QPushButton:hover{background:#F59E0B;border-color:#F59E0B;}"
-            "QPushButton:disabled{background:transparent;color:#5A5A5A;border-color:#262C36;}");
+            "QPushButton:hover{background:%accentHov%;border-color:%accentHov%;}"
+            "QPushButton:disabled{background:transparent;color:%disabled%;border-color:%border%;}"));
         m_btnViewDriver->setEnabled(false);
 
         // Number of drivers row
@@ -2298,12 +2451,28 @@ void EnclosureWidget::buildUi()
         m_numDrivers->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         m_numDrivers->setFixedWidth(55);
         ndRow->addWidget(m_numDrivers);
+        m_wiringGroup = new QButtonGroup(this);
+        m_wiringBtnSeries   = new QRadioButton("Series");
+        m_wiringBtnParallel = new QRadioButton("Parallel");
+        m_wiringBtnSeparate = new QRadioButton("Separate");
+        m_wiringBtnSeries->setChecked(true);
+        m_wiringGroup->addButton(m_wiringBtnSeries,   0);
+        m_wiringGroup->addButton(m_wiringBtnParallel, 1);
+        m_wiringGroup->addButton(m_wiringBtnSeparate, 2);
+        connect(m_wiringGroup, &QButtonGroup::idClicked,
+                this, &EnclosureWidget::onParamChanged);
+        const QString kWiringStyle =
+            "color:#8A8579; font-family:'IBM Plex Mono',monospace; font-size:8pt; padding-left:4px;";
+        for (auto *btn : {m_wiringBtnSeries, m_wiringBtnParallel, m_wiringBtnSeparate}) {
+            btn->setStyleSheet(kWiringStyle);
+            ndRow->addWidget(btn);
+        }
         ndRow->addStretch();
 
         m_vcTypeLbl = new QLabel("SVC");
-        m_vcTypeLbl->setStyleSheet(
-            "color:#8A8579; font-family:'IBM Plex Mono',monospace;"
-            "font-size:8.5pt; letter-spacing:1px;");
+        m_vcTypeLbl->setStyleSheet(themed(
+            "color:%muted%; font-family:'IBM Plex Mono',monospace;"
+            "font-size:8.5pt; letter-spacing:1px;"));
 
         // Added cone mass row (e.g. felt rings, mass-loading test)
         auto *amRow = new QHBoxLayout;
@@ -2328,14 +2497,14 @@ void EnclosureWidget::buildUi()
         auto mkAlignBtn = [](const QString &t) {
             auto *b = new QPushButton(t);
             b->setFixedHeight(22);
-            b->setStyleSheet(
+            b->setStyleSheet(themed(
                 "QPushButton{background:transparent;color:#C4B5FD;"
-                "border:1px solid #4A4F58;border-radius:0px;"
+                "border:1px solid %grid%;border-radius:0px;"
                 "font-family:'IBM Plex Sans',sans-serif;font-size:8pt;"
                 "letter-spacing:0.5px;padding:0 8px;}"
-                "QPushButton:hover{border-color:#C4B5FD;color:#E8E1D3;"
+                "QPushButton:hover{border-color:#C4B5FD;color:%text%;"
                 "background:rgba(196,181,253,0.08);}"
-                "QPushButton:pressed{background:#C4B5FD;color:#0E1116;}");
+                "QPushButton:pressed{background:#C4B5FD;color:%page%;}"));
             return b;
         };
         m_btnBessel = mkAlignBtn("Bessel");
@@ -2447,7 +2616,7 @@ void EnclosureWidget::buildUi()
 
     // ── CHAMBERS TAB ──────────────────────────────────────────────────
     auto *chambersPanel = new QWidget;
-    chambersPanel->setStyleSheet("background:#0E1116;border-top:1px solid #262C36;");
+    chambersPanel->setObjectName("encChambersPanel");
     auto *chambersMain = new QHBoxLayout(chambersPanel);
     chambersMain->setContentsMargins(8, 6, 8, 6);
     chambersMain->setSpacing(12);
@@ -2470,24 +2639,24 @@ void EnclosureWidget::buildUi()
 
         // Rear / sealed volume
         m_volLabel = new QLabel("BOX VOL");
-        m_volLabel->setStyleSheet(
+        m_volLabel->setStyleSheet(themed(
             "font-family:'IBM Plex Sans',sans-serif; font-weight:600;"
-            "font-size:8.5pt; color:#D97706; letter-spacing:1.5px;");
+            "font-size:8.5pt; color:%accent%; letter-spacing:1.5px;"));
         m_volume = mkWheelSpin(1.0, 10000.0, 2, 1.0, " L");
         m_volume->setValue(40.0);
 
         // Rear port tuning (BP6 only — rear chamber is ported in 6th-order)
         m_fbRearBpLabel = new QLabel("REAR fb");
-        m_fbRearBpLabel->setStyleSheet(
+        m_fbRearBpLabel->setStyleSheet(themed(
             "font-family:'IBM Plex Sans',sans-serif; font-weight:600;"
-            "font-size:8.5pt; color:#D97706; letter-spacing:1.5px;");
+            "font-size:8.5pt; color:%accent%; letter-spacing:1.5px;"));
         m_inFbRearBp = mkWheelSpin(1.0, 1000.0, 1, 0.5, " Hz");
         m_inFbRearBp->setValue(35.0);
 
         m_qlRearBpLabel = new QLabel("REAR QL");
-        m_qlRearBpLabel->setStyleSheet(
+        m_qlRearBpLabel->setStyleSheet(themed(
             "font-family:'IBM Plex Sans',sans-serif; font-weight:600;"
-            "font-size:8.5pt; color:#D97706; letter-spacing:1.5px;");
+            "font-size:8.5pt; color:%accent%; letter-spacing:1.5px;"));
         m_inQLRearBp = mkWheelSpin(1.0, 30.0, 2, 0.5, "");
         m_inQLRearBp->setValue(7.0);
 
@@ -2515,16 +2684,16 @@ void EnclosureWidget::buildUi()
 
         // Vented fb/QL (mirrors Port tab, visible only for vented)
         m_chambersFbLabel = new QLabel("fb");
-        m_chambersFbLabel->setStyleSheet(
+        m_chambersFbLabel->setStyleSheet(themed(
             "font-family:'IBM Plex Sans',sans-serif; font-weight:600;"
-            "font-size:8.5pt; color:#D97706; letter-spacing:1.5px;");
+            "font-size:8.5pt; color:%accent%; letter-spacing:1.5px;"));
         m_chambersFb = mkWheelSpin(1.0, 500.0, 1, 1.0, " Hz");
         m_chambersFb->setValue(35.0);
 
         m_chambersQLLabel = new QLabel("QL");
-        m_chambersQLLabel->setStyleSheet(
+        m_chambersQLLabel->setStyleSheet(themed(
             "font-family:'IBM Plex Sans',sans-serif; font-weight:600;"
-            "font-size:8.5pt; color:#D97706; letter-spacing:1.5px;");
+            "font-size:8.5pt; color:%accent%; letter-spacing:1.5px;"));
         m_chambersQL = mkWheelSpin(0.5, 50.0, 1, 0.1, "");
         m_chambersQL->setValue(7.0);
 
@@ -2553,9 +2722,9 @@ void EnclosureWidget::buildUi()
         // IB ∞ glyph
         m_ibInfinityLbl = new QLabel(QString::fromUtf8("∞"));
         m_ibInfinityLbl->setAlignment(Qt::AlignCenter);
-        m_ibInfinityLbl->setStyleSheet(
+        m_ibInfinityLbl->setStyleSheet(themed(
             "font-family:'IBM Plex Sans',sans-serif; font-weight:300;"
-            "font-size:64pt; color:#D97706; padding:4px 0 4px 0;");
+            "font-size:64pt; color:%accent%; padding:4px 0 4px 0;"));
         m_ibInfinityLbl->setToolTip("");
         m_ibInfinityLbl->setVisible(false);
         form->addRow(m_ibInfinityLbl);
@@ -2727,7 +2896,7 @@ void EnclosureWidget::buildUi()
         auto mkVDiv = [] {
             auto *d = new QFrame;
             d->setFrameShape(QFrame::VLine);
-            d->setStyleSheet("color:#262C36; background:#262C36; max-width:1px;");
+            d->setStyleSheet(themed("color:%border%; background:%border%; max-width:1px;"));
             return d;
         };
         cols->addWidget(mkVDiv());
@@ -2831,10 +3000,10 @@ void EnclosureWidget::buildUi()
             // Flare diagram note (hidden when straight)
             m_portFlareNote = new QLabel;
             m_portFlareNote->setFont(QFont("Monospace", 8));
-            m_portFlareNote->setStyleSheet(
-                "color:#BAB3A4; background:#1A1F28;"
+            m_portFlareNote->setStyleSheet(themed(
+                "color:%text2%; background:%input%;"
                 "font-family:'IBM Plex Mono',monospace; font-size:8pt;"
-                "padding:6px 8px; border-left:2px solid #D97706;");
+                "padding:6px 8px; border-left:2px solid %accent%;"));
             m_portFlareNote->setAlignment(Qt::AlignLeft | Qt::AlignTop);
             m_portFlareNote->setVisible(false);
             cv->addWidget(m_portFlareNote);
@@ -2881,12 +3050,12 @@ void EnclosureWidget::buildUi()
             addR("Port vol. (air):",    m_portVolInnerLbl);
             addR("Vol. in box:",        m_portVolDisplLbl);
             addR("Port length:",        m_portLenLbl);
-            m_portLenLbl->setStyleSheet(
-                "color:#F5C887; font-family:'IBM Plex Mono',monospace;"
-                "font-size:11pt; font-weight:500;");
+            m_portLenLbl->setStyleSheet(themed(
+                "color:%accentLt%; font-family:'IBM Plex Mono',monospace;"
+                "font-size:11pt; font-weight:500;"));
             addR("(per port):",         m_portLenEachLbl);
-            m_portLenEachLbl->setStyleSheet(
-                "color:#8A8579; font-family:'IBM Plex Mono',monospace; font-size:8.5pt;");
+            m_portLenEachLbl->setStyleSheet(themed(
+                "color:%muted%; font-family:'IBM Plex Mono',monospace; font-size:8.5pt;"));
             addR("2nd harmonic:",       m_portF2HLbl);
             m_portF2HLbl->setToolTip(
                 "2nd pipe harmonic of the port tube (open–open resonance):\n"
@@ -2914,10 +3083,10 @@ void EnclosureWidget::buildUi()
             fpvb->setSpacing(4);
 
             auto *divLbl = new QLabel("FRONT PORT");
-            divLbl->setStyleSheet(
+            divLbl->setStyleSheet(themed(
                 "font-family:'IBM Plex Sans',sans-serif; font-weight:700;"
                 "font-size:8pt; color:#7DD3FC; letter-spacing:2px;"
-                "border-top:1px solid #262C36; padding:4px 0 2px 0;");
+                "border-top:1px solid %border%; padding:4px 0 2px 0;"));
             fpvb->addWidget(divLbl);
 
             auto *fpcols = new QHBoxLayout;
@@ -3074,9 +3243,9 @@ void EnclosureWidget::buildUi()
                 addR2("Vol. in box:",        m_portFrontVolDisplLbl);
                 addR2("Port length:",        m_portFrontLenLbl);
                 if (m_portFrontLenLbl)
-                    m_portFrontLenLbl->setStyleSheet(
-                        "color:#F5C887; font-family:'IBM Plex Mono',monospace;"
-                        "font-size:11pt; font-weight:500;");
+                    m_portFrontLenLbl->setStyleSheet(themed(
+                        "color:%accentLt%; font-family:'IBM Plex Mono',monospace;"
+                        "font-size:11pt; font-weight:500;"));
                 auto *col3fp = new QWidget;
                 col3fp->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
                 auto *cv3fp = new QVBoxLayout(col3fp);
@@ -3212,8 +3381,7 @@ void EnclosureWidget::buildUi()
 
     // ── PARAM TABS ────────────────────────────────────────────────
     m_paramTabs = new QTabWidget;
-    // Inherits global tab QSS; pane override only.
-    m_paramTabs->setStyleSheet("QTabWidget::pane{border:none;background:#0E1116;}");
+    m_paramTabs->setObjectName("encParamTabs");
     m_paramTabs->addTab(paramPanel,      "DRIVER");
     m_paramTabs->addTab(chambersPanel,   "CHAMBERS");
     m_paramTabs->addTab(m_portTabContent, "PORT");
@@ -3229,8 +3397,8 @@ void EnclosureWidget::buildUi()
     rightSplit->setCollapsible(0, false);
     rightSplit->setCollapsible(1, false);
     rightSplit->setHandleWidth(1);
-    rightSplit->setStyleSheet("QSplitter::handle{background:#262C36;}"
-                              "QSplitter::handle:hover{background:#D97706;}");
+    rightSplit->setStyleSheet(themed("QSplitter::handle{background:%border%;}"
+                              "QSplitter::handle:hover{background:%accent%;}"));
 
     // Main horizontal splitter: left panel + right area
     auto *mainSplit = new QSplitter(Qt::Horizontal, this);
@@ -3241,8 +3409,8 @@ void EnclosureWidget::buildUi()
     mainSplit->setCollapsible(0, false);
     mainSplit->setCollapsible(1, false);
     mainSplit->setHandleWidth(1);
-    mainSplit->setStyleSheet("QSplitter::handle{background:#262C36;}"
-                             "QSplitter::handle:hover{background:#D97706;}");
+    mainSplit->setStyleSheet(themed("QSplitter::handle{background:%border%;}"
+                             "QSplitter::handle:hover{background:%accent%;}"));
     mainSplit->setSizes({200, 900});
 
     auto *outer = new QVBoxLayout(this);
@@ -3308,12 +3476,13 @@ void EnclosureWidget::updateModelList()
         auto *item = new QListWidgetItem(
             QIcon(colorSwatch(swatchColor, 14)),
             QString("%1  %2").arg(m.name, tag));
+        item->setData(Qt::UserRole, i);
         if (!m.visible) {
-            item->setForeground(QColor("#5A5F68"));
+            item->setForeground(Theme::instance().textDisabled());
             QFont f = item->font(); f.setItalic(true); item->setFont(f);
             item->setToolTip("Hidden — click the swatch to show on plots");
         } else {
-            item->setForeground(QColor("#E8E1D3"));
+            item->setForeground(Theme::instance().textPrimary());
             item->setToolTip("Visible — click the swatch to hide from plots");
         }
         m_modelList->addItem(item);
@@ -3345,6 +3514,22 @@ void EnclosureWidget::onAddModel()
     m_models.append(m);
     m_activeIdx = m_models.size() - 1;
     refreshAutoName(m_activeIdx);
+    updateModelList();
+    loadModelIntoFields(m_activeIdx);
+    updatePlot();
+}
+
+void EnclosureWidget::onDuplicateModel()
+{
+    if (m_activeIdx < 0 || m_activeIdx >= m_models.size()) return;
+    BoxModel copy = m_models[m_activeIdx];
+    copy.color = nextColor();
+    if (!copy.autoName) copy.name += " (copy)";
+    const int insertAt = m_activeIdx + 1;
+    m_models.insert(insertAt, copy);
+    m_activeIdx = insertAt;
+    refreshAutoName(m_activeIdx);
+    recalculate(m_activeIdx);
     updateModelList();
     loadModelIntoFields(m_activeIdx);
     updatePlot();
@@ -3504,6 +3689,8 @@ void EnclosureWidget::onDriverChanged(int index)
     model.Sd_cm2 = r.Sd * 10000.0;
     model.xmax_mm= r.Xmax;
     model.xlim_mm= r.Xlim;
+    model.isDVC     = r.isDVC;
+    model.dvcWiring = r.dvcWiring;
 
     refreshAutoName(m_activeIdx);
     loadModelIntoFields(m_activeIdx);
@@ -3552,11 +3739,11 @@ void EnclosureWidget::onViewDriverParams()
     });
 
     auto *btnClose = new QPushButton("Close");
-    btnClose->setStyleSheet(
-        "QPushButton{background:#D97706;color:#0E1116;"
-        "border:1px solid #D97706;border-radius:0px;"
+    btnClose->setStyleSheet(themed(
+        "QPushButton{background:%accent%;color:%page%;"
+        "border:1px solid %accent%;border-radius:0px;"
         "padding:5px 18px;font-weight:600;}"
-        "QPushButton:hover{background:#F59E0B;border-color:#F59E0B;}");
+        "QPushButton:hover{background:%accentHov%;border-color:%accentHov%;}"));
     connect(btnClose, &QPushButton::clicked, &dlg, &QDialog::accept);
 
     auto *vb = new QVBoxLayout(&dlg);
@@ -4125,6 +4312,7 @@ void EnclosureWidget::onParamChanged()
     if (m_portWalls)  model.portWalls  = m_portWalls->currentIndex();
     if (m_numPorts)   model.numPorts   = m_numPorts->value();
     if (m_numDrivers) model.numDrivers = m_numDrivers->value();
+    if (m_wiringGroup) model.wiringMode = static_cast<BoxModel::WiringMode>(m_wiringGroup->checkedId());
     // portWidth_mm stores round diameter (shape=0) OR rectangular width (shape=1)
     if (model.portShape == 0 && m_inPortDiam)
         model.portWidth_mm  = m_inPortDiam->value();
@@ -4343,6 +4531,19 @@ void EnclosureWidget::loadModelIntoFields(int index)
         m_numDrivers->setValue(std::max(1, model.numDrivers));
         m_numDrivers->blockSignals(false);
     }
+    if (m_wiringBtnSeries && m_wiringBtnParallel && m_wiringBtnSeparate) {
+        m_wiringBtnSeries  ->blockSignals(true);
+        m_wiringBtnParallel->blockSignals(true);
+        m_wiringBtnSeparate->blockSignals(true);
+        switch (model.wiringMode) {
+            case BoxModel::WiringMode::Parallel:  m_wiringBtnParallel->setChecked(true); break;
+            case BoxModel::WiringMode::Separate:  m_wiringBtnSeparate->setChecked(true); break;
+            default:                              m_wiringBtnSeries  ->setChecked(true); break;
+        }
+        m_wiringBtnSeries  ->blockSignals(false);
+        m_wiringBtnParallel->blockSignals(false);
+        m_wiringBtnSeparate->blockSignals(false);
+    }
     if (m_portFlare) {
         m_portFlare->blockSignals(true);
         m_portFlare->setCurrentIndex(std::clamp(model.portFlare, 0, 2));
@@ -4472,6 +4673,7 @@ void EnclosureWidget::clearFields()
     if (m_portWalls)   { m_portWalls->blockSignals(true);   m_portWalls->setCurrentIndex(0);  m_portWalls->blockSignals(false); }
     if (m_numPorts)    { m_numPorts->blockSignals(true);    m_numPorts->setValue(1);           m_numPorts->blockSignals(false); }
     if (m_numDrivers)  { m_numDrivers->blockSignals(true);  m_numDrivers->setValue(1);         m_numDrivers->blockSignals(false); }
+    if (m_wiringBtnSeries) { m_wiringBtnSeries->blockSignals(true); m_wiringBtnSeries->setChecked(true); m_wiringBtnSeries->blockSignals(false); }
     if (m_portFlare)   { m_portFlare->blockSignals(true);   m_portFlare->setCurrentIndex(0);   m_portFlare->blockSignals(false); }
     if (m_inPortWallThick){ m_inPortWallThick->blockSignals(true); m_inPortWallThick->setValue(3.0); m_inPortWallThick->blockSignals(false); }
     if (m_inPortInsert)   { m_inPortInsert->blockSignals(true);    m_inPortInsert->setValue(0.0);    m_inPortInsert->blockSignals(false); }
@@ -4669,12 +4871,12 @@ void EnclosureWidget::updatePlot()
 void EnclosureWidget::lockTsFields()
 {
     m_tsLocked = true;
-    const QString s =
+    const QString s = themed(
         "QDoubleSpinBox{"
-        "  background:#14181F; color:#5A5F68;"
-        "  border:1px solid #262C36; border-radius:0px;"
+        "  background:%sunken%; color:%disabled%;"
+        "  border:1px solid %border%; border-radius:0px;"
         "  font-family:'IBM Plex Mono',monospace; padding:4px 8px;"
-        "}";
+        "}");
     for (auto *sp : {m_inFs, m_inVas, m_inQts, m_inQes,
                      m_dpQms, m_dpRe, m_dpMms, m_dpBL, m_dpSd}) {
         sp->setReadOnly(true);
@@ -4685,13 +4887,13 @@ void EnclosureWidget::lockTsFields()
 void EnclosureWidget::unlockTsFields()
 {
     m_tsLocked = false;
-    const QString s =
+    const QString s = themed(
         "QDoubleSpinBox{"
-        "  background:#1E2530; color:#F5C887;"
-        "  border:1px solid #262C36; border-bottom:2px solid #D97706;"
+        "  background:%inputFocus%; color:%accentLt%;"
+        "  border:1px solid %border%; border-bottom:2px solid %accent%;"
         "  border-radius:0px;"
         "  font-family:'IBM Plex Mono',monospace; padding:4px 8px;"
-        "}";
+        "}");
     for (auto *sp : {m_inFs, m_inVas, m_inQts, m_inQes,
                      m_dpQms, m_dpRe, m_dpMms, m_dpBL, m_dpSd}) {
         sp->setReadOnly(false);
@@ -4701,6 +4903,28 @@ void EnclosureWidget::unlockTsFields()
 
 bool EnclosureWidget::eventFilter(QObject *obj, QEvent *event)
 {
+    // After a drag-drop reorder completes, sync m_models to the new visual order.
+    // We defer with a queued call so Qt's drop handling finishes first.
+    if (m_modelList && obj == m_modelList->viewport()
+        && event->type() == QEvent::Drop) {
+        QMetaObject::invokeMethod(this, [this]() {
+            if (m_modelList->count() != m_models.size()) return;
+            QList<BoxModel> reordered;
+            reordered.reserve(m_models.size());
+            int newActive = -1;
+            for (int i = 0; i < m_modelList->count(); ++i) {
+                const int orig = m_modelList->item(i)->data(Qt::UserRole).toInt();
+                if (orig < 0 || orig >= m_models.size()) return;
+                if (orig == m_activeIdx) newActive = i;
+                reordered.append(m_models[orig]);
+            }
+            m_models = reordered;
+            m_activeIdx = newActive;
+            updateModelList();
+            updatePlot();
+        }, Qt::QueuedConnection);
+        return false;  // let Qt finish the drop
+    }
     if (m_modelList && obj == m_modelList->viewport()
         && event->type() == QEvent::MouseButtonPress) {
         auto *me = static_cast<QMouseEvent *>(event);
@@ -4794,6 +5018,7 @@ static QJsonObject modelToJson(const BoxModel &m)
     obj["portWalls"]           = m.portWalls;
     obj["numPorts"]            = m.numPorts;
     obj["numDrivers"]          = m.numDrivers;
+    obj["wiringMode"]          = static_cast<int>(m.wiringMode);
     obj["portWallThick_mm"]       = m.portWallThick_mm;
     obj["portInsertDepth_mm"]     = m.portInsertDepth_mm;
     obj["portExtraSurfArea_cm2"]  = m.portExtraSurfArea_cm2;
@@ -4859,7 +5084,8 @@ static BoxModel jsonToModel(const QJsonObject &obj, int fallbackColorIdx)
     else
         m.portWalls = obj["portSharedWall"].toBool(false) ? 1 : 0;
     m.numPorts            = std::max(1, obj["numPorts"].toInt(1));
-    m.numDrivers          = std::max(1, obj["numDrivers"].toInt(1));
+    m.numDrivers  = std::max(1, obj["numDrivers"].toInt(1));
+    m.wiringMode  = static_cast<BoxModel::WiringMode>(std::clamp(obj["wiringMode"].toInt(0), 0, 2));
     m.portWallThick_mm        = obj["portWallThick_mm"].toDouble(3.0);
     m.portInsertDepth_mm      = obj["portInsertDepth_mm"].toDouble(0.0);
     m.portExtraSurfArea_cm2   = obj["portExtraSurfArea_cm2"].toDouble(0.0);
@@ -4871,7 +5097,7 @@ static BoxModel jsonToModel(const QJsonObject &obj, int fallbackColorIdx)
     m.addedMass_g = obj["addedMass_g"].toDouble(0.0);
     m.visible     = obj["visible"].toBool(true);
     const QString cstr = obj["color"].toString();
-    m.color = cstr.isEmpty() ? kPalette[fallbackColorIdx % kPaletteSize] : QColor(cstr);
+    m.color = cstr.isEmpty() ? paletteColor(fallbackColorIdx) : QColor(cstr);
     return m;
 }
 

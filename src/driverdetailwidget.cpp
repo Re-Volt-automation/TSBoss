@@ -1,4 +1,5 @@
 #include "driverdetailwidget.h"
+#include "theme.h"
 #include <QScrollArea>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -14,7 +15,7 @@
 static QLabel *valLbl()
 {
     auto *l = new QLabel("–");
-    l->setStyleSheet("font-weight:bold; color:#3a3a3a;");
+    l->setStyleSheet(themed("font-weight:bold; color:%text2%;"));
     return l;
 }
 
@@ -27,11 +28,11 @@ static void addFormRow(QFormLayout *f, const QString &lbl, QLabel *&out)
 static QGroupBox *makeSection(const QString &title)
 {
     auto *g = new QGroupBox(title);
-    g->setStyleSheet(
+    g->setStyleSheet(themed(
         "QGroupBox{font-weight:bold;border:1px solid #ddd;"
         "border-radius:6px;margin-top:20px;padding:14px 8px 8px 8px;}"
         "QGroupBox::title{subcontrol-origin:margin;left:10px;"
-        "padding:0 6px;color:#4a1a2e;}");
+        "padding:0 6px;color:%accent%;}"));
     return g;
 }
 
@@ -46,7 +47,7 @@ static void tsRow(QGridLayout *g, int &row,
     auto *n = new QLabel(name); n->setStyleSheet("color:#555;");
     g->addWidget(n,                             row, 1);
     out = new QLabel("–");
-    out->setStyleSheet("font-weight:bold;color:#3a3a3a;font-size:10pt;");
+    out->setStyleSheet(themed("font-weight:bold;color:%text2%;font-size:10pt;"));
     g->addWidget(out,                           row, 2);
     auto *u = new QLabel(unit); u->setStyleSheet("color:#888;");
     g->addWidget(u,                             row, 3);
@@ -70,7 +71,7 @@ void DriverDetailWidget::buildUi()
     // ── Title row
     auto *titleRow = new QHBoxLayout;
     auto *title    = new QLabel("Driver Detail");
-    title->setStyleSheet("font-size:14pt; font-weight:bold; color:#3a3a3a;");
+    title->setStyleSheet(themed("font-size:14pt; font-weight:bold; color:%text2%;"));
     titleRow->addWidget(title);
     titleRow->addStretch();
     auto *btnUse    = new QPushButton("Use for Enclosure");
@@ -80,8 +81,8 @@ void DriverDetailWidget::buildUi()
                           "padding:5px 16px;}QPushButton:hover{background:#1e8449;}");
     btnEdit->setStyleSheet("QPushButton{background:#f39c12;color:white;border-radius:4px;"
                            "padding:5px 16px;}QPushButton:hover{background:#e67e22;}");
-    btnDelete->setStyleSheet("QPushButton{background:#e74c3c;color:white;border-radius:4px;"
-                             "padding:5px 16px;}QPushButton:hover{background:#c0392b;}");
+    btnDelete->setStyleSheet(themed("QPushButton{background:%error%;color:white;border-radius:4px;"
+                             "padding:5px 16px;}QPushButton:hover{background:%error%;}"));
     titleRow->addWidget(btnUse);
     titleRow->addWidget(btnEdit);
     titleRow->addWidget(btnDelete);

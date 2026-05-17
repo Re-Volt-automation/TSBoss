@@ -1,4 +1,5 @@
 #include "tswizard.h"
+#include "theme.h"
 #include "tscalculator.h"
 #include "noscrollspinbox.h"
 #include <QVBoxLayout>
@@ -30,8 +31,8 @@ static QLabel *makeInstructionLabel(const QString &html)
     auto *lbl = new QLabel(html);
     lbl->setWordWrap(true);
     lbl->setTextFormat(Qt::RichText);
-    lbl->setStyleSheet("QLabel { background:#f5f0f2; border-left:4px solid #6b2a40;"
-                       " padding:8px 12px; border-radius:3px; color:#3a3a3a; }");
+    lbl->setStyleSheet(themed("QLabel { background:%panel%; border-left:4px solid %accent%;"
+                       " padding:8px 12px; border-radius:3px; color:%text2%; }"));
     return lbl;
 }
 
@@ -50,7 +51,7 @@ static QDoubleSpinBox *makeSpin(double min, double max, int dec,
 static QLabel *makeResultLbl()
 {
     auto *l = new QLabel("–");
-    l->setStyleSheet("font-weight:bold; color:#4a1a2e; font-size:10pt;");
+    l->setStyleSheet(themed("font-weight:bold; color:%accent%; font-size:10pt;"));
     return l;
 }
 
@@ -60,9 +61,9 @@ static QLabel *makeHintLbl()
     auto *l = new QLabel;
     l->setWordWrap(true);
     l->setTextFormat(Qt::RichText);
-    l->setStyleSheet(
-        "QLabel { background:#f8f0f2; border-left:4px solid #8b3a50;"
-        " padding:6px 10px; border-radius:3px; color:#4a1a2e; }");
+    l->setStyleSheet(themed(
+        "QLabel { background:%panel%; border-left:4px solid %accentLt%;"
+        " padding:6px 10px; border-radius:3px; color:%accent%; }"));
     l->setVisible(false);
     return l;
 }
@@ -379,11 +380,11 @@ FreeAirPage::FreeAirPage(QWidget *parent) : QWizardPage(parent)
     form->addRow("V at peak (driver voltage at fₛ):", m_Vpeak);
 
     auto *calcBox = new QGroupBox("Live calculation");
-    calcBox->setStyleSheet(
+    calcBox->setStyleSheet(themed(
         "QGroupBox{font-weight:bold;font-size:9pt;border:1px solid #ccd;"
         "border-radius:4px;margin-top:14px;padding:8px 6px 4px 6px;}"
         "QGroupBox::title{subcontrol-origin:margin;left:8px;padding:0 4px;"
-        "color:#4a1a2e;}");
+        "color:%accent%;}"));
     auto *calcForm = new QFormLayout(calcBox);
     calcForm->setSpacing(3);
     calcForm->setContentsMargins(4,2,4,2);
@@ -628,7 +629,7 @@ static void addResultRow(QGridLayout *g, int &row,
     auto *sym = new QLabel("<b>" + symbol + "</b>"); sym->setMinimumWidth(40);
     auto *nm  = new QLabel(name); nm->setStyleSheet("color:#555;");
     out = new QLabel("–");
-    out->setStyleSheet("font-weight:bold; color:#3a3a3a; font-size:10pt;");
+    out->setStyleSheet(themed("font-weight:bold; color:%text2%; font-size:10pt;"));
     auto *un  = new QLabel(unit); un->setStyleSheet("color:#888;");
     g->addWidget(sym, row, 0);
     g->addWidget(nm,  row, 1);
@@ -652,10 +653,10 @@ ResultsPage::ResultsPage(QWidget *parent)
     m_notes->setFixedHeight(64);
 
     auto *resBox = new QGroupBox("Calculated Parameters");
-    resBox->setStyleSheet(
+    resBox->setStyleSheet(themed(
         "QGroupBox{font-weight:bold;border:1px solid #ddd;border-radius:5px;"
         "margin-top:16px;padding:12px 6px 6px 6px;background:white;}"
-        "QGroupBox::title{subcontrol-origin:margin;left:10px;padding:0 6px;color:#4a1a2e;}");
+        "QGroupBox::title{subcontrol-origin:margin;left:10px;padding:0 6px;color:%accent%;}"));
     auto *grid = new QGridLayout(resBox);
     grid->setColumnStretch(1,2); grid->setColumnStretch(2,1); grid->setColumnStretch(3,1);
     grid->setVerticalSpacing(2); grid->setHorizontalSpacing(8);
@@ -686,10 +687,10 @@ ResultsPage::ResultsPage(QWidget *parent)
     grid->addWidget(m_lblVerify,row,2,1,2);
 
     auto *notesBox = new QGroupBox("Notes");
-    notesBox->setStyleSheet(
+    notesBox->setStyleSheet(themed(
         "QGroupBox{font-weight:bold;border:1px solid #ddd;border-radius:5px;"
         "margin-top:16px;padding:12px 6px 6px 6px;background:white;}"
-        "QGroupBox::title{subcontrol-origin:margin;left:10px;padding:0 6px;color:#4a1a2e;}");
+        "QGroupBox::title{subcontrol-origin:margin;left:10px;padding:0 6px;color:%accent%;}"));
     auto *nb = new QVBoxLayout(notesBox);
     nb->setContentsMargins(4,2,4,4);
     nb->addWidget(m_notes);

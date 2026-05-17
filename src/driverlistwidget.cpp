@@ -1,4 +1,5 @@
 #include "driverlistwidget.h"
+#include "theme.h"
 #include "driverrecord.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -44,11 +45,11 @@ DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
     auto *btnImport  = new QPushButton("Import CSV");
     auto *btnExport  = new QPushButton("Export CSV");
     m_countLbl = new QLabel;
-    m_countLbl->setStyleSheet("color:#666;");
+    m_countLbl->setStyleSheet(themed("color:%muted%;"));
 
     for (auto *b : {btnRefresh}) {
-        b->setStyleSheet("QPushButton{background:#6b2a40;color:white;border-radius:4px;"
-                         "padding:5px 14px;}QPushButton:hover{background:#8b3a50;}");
+        b->setStyleSheet(themed("QPushButton{background:%accentHov%;color:white;border-radius:4px;"
+                         "padding:5px 14px;}QPushButton:hover{background:%accentLt%;}"));
     }
     m_btnUse->setStyleSheet("QPushButton{background:#27ae60;color:white;border-radius:4px;"
                            "padding:5px 14px;}QPushButton:hover{background:#1e8449;}"
@@ -56,9 +57,9 @@ DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
     m_btnEdit->setStyleSheet("QPushButton{background:#f39c12;color:white;border-radius:4px;"
                             "padding:5px 14px;}QPushButton:hover{background:#e67e22;}"
                             "QPushButton:disabled{background:#e0d0b0;color:#aaa;}");
-    m_btnDelete->setStyleSheet("QPushButton{background:#e74c3c;color:white;border-radius:4px;"
-                               "padding:5px 14px;}QPushButton:hover{background:#c0392b;}"
-                               "QPushButton:disabled{background:#e0c0c0;color:#aaa;}");
+    m_btnDelete->setStyleSheet(themed("QPushButton{background:%error%;color:white;border-radius:4px;"
+                               "padding:5px 14px;}QPushButton:hover{background:%error%;}"
+                               "QPushButton:disabled{background:#e0c0c0;color:#aaa;}"));
     btnImport->setStyleSheet("QPushButton{background:#95a5a6;color:white;border-radius:4px;"
                              "padding:5px 14px;}QPushButton:hover{background:#7f8c8d;}");
     btnExport->setStyleSheet("QPushButton{background:#95a5a6;color:white;border-radius:4px;"
@@ -86,11 +87,9 @@ DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_table->horizontalHeader()->setStretchLastSection(true);
     m_table->setShowGrid(false);
-    m_table->setStyleSheet(
-        "QTableWidget{border:1px solid #ddd;border-radius:4px;background:#f5f5f5;}"
-        "QTableWidget::item{padding:4px 8px;color:#1a1a1a;background:#f5f5f5;}"
-        "QTableWidget::item:selected{background:#6b2a40;color:white;}"
-    );
+    m_table->setObjectName("driverTable");
+    // Structural panel styling lives in global QSS so live theme switching
+    // re-applies automatically. See theme.cpp::globalStylesheet().
 
     // ── Layout
     auto *vb = new QVBoxLayout(this);
@@ -98,7 +97,7 @@ DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
     vb->setSpacing(8);
 
     auto *heading = new QLabel("Driver Database");
-    heading->setStyleSheet("font-size:14pt; font-weight:bold; color:#3a3a3a;");
+    heading->setStyleSheet(themed("font-size:14pt; font-weight:bold; color:%text2%;"));
     vb->addWidget(heading);
     vb->addLayout(toolbar);
     vb->addWidget(m_table);
