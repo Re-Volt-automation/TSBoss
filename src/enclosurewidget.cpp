@@ -5200,21 +5200,16 @@ void EnclosureWidget::onLoadModel()
     m_statusLbl->setText("Loaded: " + m.name);
 }
 
-void EnclosureWidget::onSaveProject()
+QString EnclosureWidget::deriveProjectFileBaseName(const QList<BoxModel> &models,
+                                                   DriverDatabase *db)
 {
-    if (m_models.isEmpty()) {
-        QMessageBox::information(this, "No models",
-            "Add at least one model before saving a project.");
-        return;
-    }
-    // Build default filename: Nx_Brand1-Brand2
     QStringList brands;
     QSet<int> seenIds;
-    for (const auto &m : m_models) {
+    for (const auto &m : models) {
         if (m.driverId >= 0 && !seenIds.contains(m.driverId) &&
-            m_db && m_db->isOpen()) {
+            db && db->isOpen()) {
             seenIds.insert(m.driverId);
-            const auto r = m_db->loadDriver(m.driverId);
+            const auto r = db->loadDriver(m.driverId);
             if (!r.make.isEmpty()) {
                 QString b = sanitizeFilename(r.make);
                 b.replace('-', '_');
@@ -5224,9 +5219,19 @@ void EnclosureWidget::onSaveProject()
         }
     }
     brands.sort(Qt::CaseInsensitive);
-    const QString stem = brands.isEmpty()
-        ? "enclosure"
-        : QString("%1x_%2").arg(m_models.size()).arg(brands.join('-'));
+    return brands.isEmpty()
+        ? QStringLiteral("enclosure")
+        : QString("%1x_%2").arg(models.size()).arg(brands.join('-'));
+}
+
+void EnclosureWidget::onSaveProject()
+{
+    if (m_models.isEmpty()) {
+        QMessageBox::information(this, "No models",
+            "Add at least one model before saving a project.");
+        return;
+    }
+    const QString stem = deriveProjectFileBaseName(m_models, m_db);
 
     const QString path = QFileDialog::getSaveFileName(
         this, "Save Project", QDir::homePath() + "/" + stem + ".tsproj",

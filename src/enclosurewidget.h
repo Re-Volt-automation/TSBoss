@@ -355,6 +355,13 @@ private:
     QColor  nextColor() const;
     QString serializeModels() const;
     void    deserializeModels(const QString &json);
+    /// Build a default filename stem from the loaded models:
+    /// "Nx_Brand1-Brand2" with hyphens in brand names escaped to underscores.
+    /// Brands are deduplicated case-insensitively and sorted; driver IDs are
+    /// deduplicated so the same driver isn't queried twice. Falls back to
+    /// "enclosure" when no brands resolve.
+    static QString deriveProjectFileBaseName(const QList<BoxModel> &models,
+                                             DriverDatabase *db);
 
     DriverDatabase    *m_db;
     QList<BoxModel>    m_models;
