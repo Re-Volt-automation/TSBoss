@@ -175,6 +175,20 @@ QPixmap renderPv(const QList<BoxModel>& m, double power, bool perDriver, QSize s
     QPixmap px(sz); px.fill(Qt::white); p.render(&px); return px;
 }
 
+QString buildLegendHtml(const QList<BoxModel>& filtered) {
+    QString h = "<div style='font-size: 9pt; margin-bottom: 6pt;'>";
+    for (int i = 0; i < filtered.size(); ++i) {
+        const auto& m = filtered[i];
+        if (i > 0) h += "&nbsp;&nbsp;";
+        h += QStringLiteral(
+            "<span style='display:inline-block; width:10pt; height:10pt; "
+            "background:%1; vertical-align:middle;'></span> %2")
+            .arg(m.color.name(), m.name.toHtmlEscaped());
+    }
+    h += "</div>";
+    return h;
+}
+
 QString buildHtml(const PdfReportOptions& opts,
                   const QList<BoxModel>& filtered,
                   DriverDatabase* db)
@@ -211,6 +225,7 @@ QString buildHtml(const PdfReportOptions& opts,
     for (int i = 0; i < 5; ++i) {
         html += QStringLiteral("<div class='pagebreak'></div>");
         html += QStringLiteral("<h2>%1</h2>").arg(titles[i]);
+        html += buildLegendHtml(filtered);
         html += QStringLiteral("<img class='plot' src='plot://%1' width='720'>").arg(keys[i]);
     }
 
