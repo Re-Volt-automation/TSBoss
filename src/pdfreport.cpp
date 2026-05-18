@@ -13,9 +13,14 @@
 #include <QLabel>
 #include <QAbstractItemView>
 #include <QPixmap>
-#include <QPainter>
-#include <QStandardPaths>
 #include <QDir>
+#include <QPdfWriter>
+#include <QPageSize>
+#include <QPageLayout>
+#include <QTextDocument>
+#include <QUrl>
+#include <QFileInfo>
+#include <QDateTime>
 
 namespace {
 
@@ -31,24 +36,76 @@ QList<BoxModel> filterModels(const QList<BoxModel>& models,
     return out;
 }
 
-/// Render the SPL plot for the given filtered models into a QPixmap.
-QPixmap renderSplPlot(const QList<BoxModel>& filtered,
-                      double appliedPower,
-                      bool perDriverMode,
-                      QSize sizePx)
-{
-    ResponsePlot plot;
-    plot.setAttribute(Qt::WA_DontShowOnScreen);
-    plot.resize(sizePx);
-    plot.setPower(appliedPower);
-    plot.setPerDriverMode(perDriverMode);
-    plot.setModels(filtered, -1);  // no active highlight in the report
-    plot.ensurePolished();
+QPixmap renderSpl(const QList<BoxModel>& m, double power, bool perDriver, QSize sz) {
+    ResponsePlot p; p.setAttribute(Qt::WA_DontShowOnScreen);
+    p.resize(sz); p.setPower(power); p.setPerDriverMode(perDriver);
+    p.setModels(m, -1); p.ensurePolished();
+    QPixmap px(sz); px.fill(Qt::white); p.render(&px); return px;
+}
+QPixmap renderGd(const QList<BoxModel>& m, QSize sz) {
+    GroupDelayPlot p; p.setAttribute(Qt::WA_DontShowOnScreen);
+    p.resize(sz); p.setModels(m, -1); p.ensurePolished();
+    QPixmap px(sz); px.fill(Qt::white); p.render(&px); return px;
+}
+QPixmap renderVolt(const QList<BoxModel>& m, double power, bool perDriver, QSize sz) {
+    VoltagePlot p; p.setAttribute(Qt::WA_DontShowOnScreen);
+    p.resize(sz); p.setPower(power); p.setPerDriverMode(perDriver);
+    p.setModels(m, -1); p.ensurePolished();
+    QPixmap px(sz); px.fill(Qt::white); p.render(&px); return px;
+}
+QPixmap renderExc(const QList<BoxModel>& m, double power, bool perDriver, QSize sz) {
+    ExcursionPlot p; p.setAttribute(Qt::WA_DontShowOnScreen);
+    p.resize(sz); p.setPower(power); p.setPerDriverMode(perDriver);
+    p.setModels(m, -1); p.ensurePolished();
+    QPixmap px(sz); px.fill(Qt::white); p.render(&px); return px;
+}
+QPixmap renderPv(const QList<BoxModel>& m, double power, bool perDriver, QSize sz) {
+    PortVelocityPlot p; p.setAttribute(Qt::WA_DontShowOnScreen);
+    p.resize(sz); p.setPower(power); p.setPerDriverMode(perDriver);
+    p.setModels(m, -1); p.ensurePolished();
+    QPixmap px(sz); px.fill(Qt::white); p.render(&px); return px;
+}
 
-    QPixmap px(sizePx);
-    px.fill(Qt::white);
-    plot.render(&px);
-    return px;
+QString buildHtml(const PdfReportOptions& opts,
+                  const QList<BoxModel>& filtered)
+{
+    QStringList modelNames;
+    for (const auto& m : filtered)
+        modelNames << (m.name.isEmpty() ? QStringLiteral("(unnamed)") : m.name);
+
+    const QString today = QDateTime::currentDateTime().toString("yyyy-MM-dd");
+    const QString title = opts.projectName.isEmpty()
+                          ? QStringLiteral("TSBoss Report") : opts.projectName;
+
+    QString html;
+    html += QStringLiteral(
+        "<html><head><style>"
+        "body { font-family: sans-serif; color: #111; }"
+        "h1 { font-size: 22pt; margin-bottom: 4pt; }"
+        "h2 { font-size: 16pt; margin-top: 18pt; border-bottom: 1px solid #888; padding-bottom: 2pt; }"
+        ".meta { color: #555; font-size: 10pt; margin-bottom: 14pt; }"
+        ".plot { margin-bottom: 14pt; }"
+        ".pagebreak { page-break-before: always; }"
+        "</style></head><body>");
+
+    html += QStringLiteral("<h1>%1</h1>").arg(title.toHtmlEscaped());
+    html += QStringLiteral("<div class='meta'>Exported %1 &middot; %2 model(s): %3</div>")
+            .arg(today, QString::number(filtered.size()),
+                 modelNames.join(", ").toHtmlEscaped());
+
+    static const char* keys[]   = { "spl", "gd", "volt", "exc", "pv" };
+    static const char* titles[] = {
+        "SPL Response", "Group Delay", "Voltage Demand",
+        "Cone Excursion", "Port Velocity"
+    };
+    for (int i = 0; i < 5; ++i) {
+        html += QStringLiteral("<div class='pagebreak'></div>");
+        html += QStringLiteral("<h2>%1</h2>").arg(titles[i]);
+        html += QStringLiteral("<img class='plot' src='plot://%1' width='720'>").arg(keys[i]);
+    }
+
+    html += QStringLiteral("</body></html>");
+    return html;
 }
 
 /// Show a modal dialog that lets the user pick which models to include.
@@ -125,17 +182,38 @@ bool PdfReport::exportToFile(QWidget* parent,
     if (chosen.isEmpty()) return false;  // cancel OR zero checked
 
     const auto filtered = filterModels(models, chosen);
-    const QPixmap px = renderSplPlot(filtered, opts.appliedPower,
-                                     opts.perDriverMode, QSize(1600, 900));
 
-    const QString tmp = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
-                        + "/tsboss_spl_test.png";
-    if (!px.save(tmp, "PNG")) {
-        QMessageBox::warning(parent, "PDF Export",
-            "Could not write test pixmap to " + tmp);
-        return false;
-    }
+    const QString defaultName = (opts.projectName.isEmpty()
+                                 ? QStringLiteral("enclosure")
+                                 : opts.projectName) + ".pdf";
+    const QString path = QFileDialog::getSaveFileName(
+        parent, "Export PDF", QDir::homePath() + "/" + defaultName,
+        "PDF Document (*.pdf)");
+    if (path.isEmpty()) return false;
+
+    const QSize plotPx(1600, 900);
+    const QPixmap pxSpl  = renderSpl (filtered, opts.appliedPower, opts.perDriverMode, plotPx);
+    const QPixmap pxGd   = renderGd  (filtered, plotPx);
+    const QPixmap pxVolt = renderVolt(filtered, opts.appliedPower, opts.perDriverMode, plotPx);
+    const QPixmap pxExc  = renderExc (filtered, opts.appliedPower, opts.perDriverMode, plotPx);
+    const QPixmap pxPv   = renderPv  (filtered, opts.appliedPower, opts.perDriverMode, plotPx);
+
+    QTextDocument doc;
+    doc.addResource(QTextDocument::ImageResource, QUrl("plot://spl"),  pxSpl);
+    doc.addResource(QTextDocument::ImageResource, QUrl("plot://gd"),   pxGd);
+    doc.addResource(QTextDocument::ImageResource, QUrl("plot://volt"), pxVolt);
+    doc.addResource(QTextDocument::ImageResource, QUrl("plot://exc"),  pxExc);
+    doc.addResource(QTextDocument::ImageResource, QUrl("plot://pv"),   pxPv);
+    doc.setHtml(buildHtml(opts, filtered));
+
+    QPdfWriter writer(path);
+    writer.setPageSize(QPageSize(QPageSize::A4));
+    writer.setPageMargins(QMarginsF(20, 20, 20, 20), QPageLayout::Millimeter);
+    writer.setResolution(150);
+    doc.setPageSize(QSizeF(writer.width(), writer.height()));
+    doc.print(&writer);
+
     QMessageBox::information(parent, "PDF Export",
-        "SPL plot rendered to " + tmp);
+        "Report exported to " + QFileInfo(path).fileName());
     return true;
 }
