@@ -1,6 +1,7 @@
 #include "pdfreport.h"
 #include "enclosurewidget.h"   // for BoxModel
 #include "driverdb.h"          // for DriverDatabase
+#include <cmath>
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QWidget>
@@ -23,6 +24,114 @@
 #include <QDateTime>
 
 namespace {
+
+QString fmt(double v, int decimals = 2) {
+    return QString::number(v, 'f', decimals);
+}
+QString encTypeLabel(BoxModel::EncType t) {
+    switch (t) {
+    case BoxModel::EncType::Sealed:    return "Sealed";
+    case BoxModel::EncType::Vented:    return "Vented";
+    case BoxModel::EncType::IB:        return "Infinite Baffle";
+    case BoxModel::EncType::Bandpass4: return "Bandpass (4th order)";
+    case BoxModel::EncType::Bandpass6: return "Bandpass (6th order)";
+    }
+    return "Unknown";
+}
+bool hasPort(BoxModel::EncType t) {
+    return t == BoxModel::EncType::Vented
+        || t == BoxModel::EncType::Bandpass4
+        || t == BoxModel::EncType::Bandpass6;
+}
+QString portShapeLabel(int s) { return s == 0 ? "Round" : "Rectangular"; }
+
+QString buildModelSection(const BoxModel& m,
+                          DriverDatabase* db,
+                          double appliedPower)
+{
+    QString driverDesc = "(no driver linked)";
+    if (m.driverId >= 0 && db && db->isOpen()) {
+        const auto r = db->loadDriver(m.driverId);
+        if (!r.make.isEmpty() || !r.model.isEmpty())
+            driverDesc = QString("%1 %2").arg(r.make, r.model).trimmed();
+        else
+            driverDesc = "(driver not found in database)";
+    }
+
+    QString h;
+    h += "<div class='pagebreak'></div>";
+    h += QStringLiteral("<h2>%1</h2>").arg(m.name.toHtmlEscaped());
+    h += QStringLiteral("<div class='meta'>%1 &middot; %2</div>")
+         .arg(encTypeLabel(m.encType).toHtmlEscaped(), driverDesc.toHtmlEscaped());
+
+    // Table A — Driver T/S
+    h += "<h3>Driver T/S</h3><table border='1' cellpadding='4' cellspacing='0'>";
+    h += QString("<tr><td>fs</td><td>%1 Hz</td></tr>").arg(fmt(m.fs, 1));
+    h += QString("<tr><td>Vas</td><td>%1 L</td></tr>").arg(fmt(m.Vas_L, 2));
+    h += QString("<tr><td>Qts</td><td>%1</td></tr>").arg(fmt(m.Qts, 3));
+    h += QString("<tr><td>Qes</td><td>%1</td></tr>").arg(fmt(m.Qes, 3));
+    h += QString("<tr><td>Qms</td><td>%1</td></tr>").arg(fmt(m.Qms, 3));
+    h += QString("<tr><td>Re</td><td>%1 &Omega;</td></tr>").arg(fmt(m.Re, 2));
+    h += QString("<tr><td>mms</td><td>%1 g</td></tr>").arg(fmt(m.mms_g, 2));
+    h += QString("<tr><td>BL</td><td>%1 Tm</td></tr>").arg(fmt(m.BL, 2));
+    h += QString("<tr><td>Sd</td><td>%1 cm&sup2;</td></tr>").arg(fmt(m.Sd_cm2, 1));
+    h += QString("<tr><td>Drivers</td><td>%1</td></tr>").arg(m.numDrivers);
+    h += "</table>";
+
+    // Table B — Enclosure
+    h += "<h3>Enclosure</h3><table border='1' cellpadding='4' cellspacing='0'>";
+    h += QString("<tr><td>Type</td><td>%1</td></tr>").arg(encTypeLabel(m.encType).toHtmlEscaped());
+    h += QString("<tr><td>Volume</td><td>%1 L</td></tr>").arg(fmt(m.volumeL, 2));
+    if (hasPort(m.encType)) {
+        h += QString("<tr><td>fb</td><td>%1 Hz</td></tr>").arg(fmt(m.fb, 1));
+        h += QString("<tr><td>QL</td><td>%1</td></tr>").arg(fmt(m.QL, 2));
+    }
+    if (m.encType == BoxModel::EncType::Bandpass4 ||
+        m.encType == BoxModel::EncType::Bandpass6) {
+        h += QString("<tr><td>Front volume</td><td>%1 L</td></tr>").arg(fmt(m.volumeFront_L, 2));
+        h += QString("<tr><td>Front fb</td><td>%1 Hz</td></tr>").arg(fmt(m.fbFront, 1));
+    }
+    if (m.encType == BoxModel::EncType::Sealed) {
+        h += QString("<tr><td>alpha</td><td>%1</td></tr>").arg(fmt(m.alpha, 3));
+        h += QString("<tr><td>Fc</td><td>%1 Hz</td></tr>").arg(fmt(m.Fc, 1));
+        h += QString("<tr><td>Qtc</td><td>%1</td></tr>").arg(fmt(m.Qtc, 3));
+    }
+    h += QString("<tr><td>f3</td><td>%1 Hz</td></tr>").arg(fmt(m.f3, 1));
+    h += QString("<tr><td>&eta;&#8320;</td><td>%1 %</td></tr>").arg(fmt(m.eta, 3));
+    h += QString("<tr><td>Reference SPL (1W/1m)</td><td>%1 dB</td></tr>").arg(fmt(m.spl, 1));
+    h += "</table>";
+
+    // Table C — Port geometry (only if ported)
+    if (hasPort(m.encType)) {
+        h += "<h3>Port Geometry (rear)</h3><table border='1' cellpadding='4' cellspacing='0'>";
+        h += QString("<tr><td>Shape</td><td>%1</td></tr>").arg(portShapeLabel(m.portShape));
+        if (m.portShape == 0) {
+            h += QString("<tr><td>Diameter</td><td>%1 mm</td></tr>").arg(fmt(m.portWidth_mm, 1));
+        } else {
+            h += QString("<tr><td>Width</td><td>%1 mm</td></tr>").arg(fmt(m.portWidth_mm, 1));
+            h += QString("<tr><td>Height</td><td>%1 mm</td></tr>").arg(fmt(m.portHeight_mm, 1));
+            h += QString("<tr><td>Shared walls</td><td>%1</td></tr>").arg(m.portWalls);
+        }
+        h += QString("<tr><td>Number of ports</td><td>%1</td></tr>").arg(m.numPorts);
+        if (m.portF2H > 0)
+            h += QString("<tr><td>2nd pipe harmonic</td><td>%1 Hz</td></tr>").arg(fmt(m.portF2H, 1));
+        h += "</table>";
+    }
+
+    // Table D — Applied power & predicted output
+    h += "<h3>Applied Power &amp; Predicted Output</h3>";
+    h += "<table border='1' cellpadding='4' cellspacing='0'>";
+    h += QString("<tr><td>Applied power</td><td>%1 W</td></tr>").arg(fmt(appliedPower, 2));
+    h += QString("<tr><td>Predicted passband SPL</td><td>%1 dB</td></tr>")
+         .arg(fmt(m.spl + 10.0 * std::log10(std::max(appliedPower, 1e-6)), 1));
+    if (m.xmax_mm > 0)
+        h += QString("<tr><td>Driver Xmax</td><td>%1 mm</td></tr>").arg(fmt(m.xmax_mm, 2));
+    if (m.xlim_mm > 0)
+        h += QString("<tr><td>Driver Xlim</td><td>%1 mm</td></tr>").arg(fmt(m.xlim_mm, 2));
+    h += "</table>";
+
+    return h;
+}
 
 /// Build a filtered model list containing only the chosen indices.
 QList<BoxModel> filterModels(const QList<BoxModel>& models,
@@ -67,7 +176,8 @@ QPixmap renderPv(const QList<BoxModel>& m, double power, bool perDriver, QSize s
 }
 
 QString buildHtml(const PdfReportOptions& opts,
-                  const QList<BoxModel>& filtered)
+                  const QList<BoxModel>& filtered,
+                  DriverDatabase* db)
 {
     QStringList modelNames;
     for (const auto& m : filtered)
@@ -103,6 +213,9 @@ QString buildHtml(const PdfReportOptions& opts,
         html += QStringLiteral("<h2>%1</h2>").arg(titles[i]);
         html += QStringLiteral("<img class='plot' src='plot://%1' width='720'>").arg(keys[i]);
     }
+
+    for (const auto& m : filtered)
+        html += buildModelSection(m, db, opts.appliedPower);
 
     html += QStringLiteral("</body></html>");
     return html;
@@ -170,8 +283,6 @@ bool PdfReport::exportToFile(QWidget* parent,
                              const PdfReportOptions& opts,
                              DriverDatabase* db)
 {
-    Q_UNUSED(db);
-
     if (models.isEmpty()) {
         QMessageBox::information(parent, "PDF Export",
             "Add at least one model before exporting.");
@@ -204,7 +315,7 @@ bool PdfReport::exportToFile(QWidget* parent,
     doc.addResource(QTextDocument::ImageResource, QUrl("plot://volt"), pxVolt);
     doc.addResource(QTextDocument::ImageResource, QUrl("plot://exc"),  pxExc);
     doc.addResource(QTextDocument::ImageResource, QUrl("plot://pv"),   pxPv);
-    doc.setHtml(buildHtml(opts, filtered));
+    doc.setHtml(buildHtml(opts, filtered, db));
 
     QPdfWriter writer(path);
     writer.setPageSize(QPageSize(QPageSize::A4));
