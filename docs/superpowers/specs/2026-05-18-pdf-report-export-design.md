@@ -10,7 +10,7 @@
 
 Allow the user to export a portable PDF containing:
 
-1. The three combined plots (SPL Response, Group Delay, Voltage) overlaying every selected model — same visual content as the on-screen tabs.
+1. The five combined plots (SPL Response, Group Delay, Voltage, Excursion, Port Velocity) overlaying every selected model — same visual content as the on-screen tabs.
 2. A per-model breakdown section listing the driver T/S parameters, enclosure configuration, port geometry (if vented), and applied power / predicted output for each selected model.
 
 The PDF should be suitable for review, archiving, and sharing alongside a `.tsbox` project file.
@@ -41,14 +41,16 @@ The PDF should be suitable for review, archiving, and sharing alongside a `.tsbo
 - Model count
 - One-line list of model names
 
-### Pages 2–4 — Combined plots
+### Pages 2–6 — Combined plots
 - One plot per page (or as page breaks fall — QTextDocument decides), each overlaying the *selected* models:
   1. **SPL Response** — same content as the SPL tab, including the applied-power offset.
   2. **Group Delay** — same content as the Group Delay tab.
   3. **Voltage** — same content as the Voltage tab.
+  4. **Excursion** — same content as the Excursion tab.
+  5. **Port Velocity** — same content as the Port Velocity tab.
 - Each plot has a heading and a small legend showing model name + colour swatch (matches `kPalette` cycling).
 
-### Pages 5+ — Per-model breakdowns
+### Pages 7+ — Per-model breakdowns
 For each selected model, in order:
 
 - **Model header** — model name, enclosure type (Sealed / Vented), driver model+brand (from DB).
@@ -83,11 +85,11 @@ public:
     static bool exportToFile(QWidget* parent,
                              const QList<BoxModel>& models,
                              const PdfReportOptions& opts,
-                             DriverDb& db);
+                             DriverDatabase* db);
 };
 ```
 
-`DriverDb&` is needed so the per-model breakdown can resolve the driver make/model and any Driver T/S fields not already mirrored into `BoxModel` (BoxModel has `fs, Vas, Qts, Qes, Qms, Re, mms, BL, Sd` — `Le` would need a lookup, as would the driver name).
+`DriverDatabase*` is needed so the per-model breakdown can resolve the driver make/model and any Driver T/S fields not already mirrored into `BoxModel` (BoxModel has `fs, Vas, Qts, Qes, Qms, Re, mms, BL, Sd` — `Le` would need a lookup, as would the driver name). The class name is `DriverDatabase` (defined in `driverdb.h`), used as a pointer throughout the codebase.
 
 ### New dialog
 
