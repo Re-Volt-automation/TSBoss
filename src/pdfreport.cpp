@@ -12,8 +12,44 @@
 #include <QListWidgetItem>
 #include <QLabel>
 #include <QAbstractItemView>
+#include <QPixmap>
+#include <QPainter>
+#include <QStandardPaths>
+#include <QDir>
 
 namespace {
+
+/// Build a filtered model list containing only the chosen indices.
+QList<BoxModel> filterModels(const QList<BoxModel>& models,
+                             const QList<int>& chosen)
+{
+    QList<BoxModel> out;
+    out.reserve(chosen.size());
+    for (int idx : chosen)
+        if (idx >= 0 && idx < models.size())
+            out.append(models[idx]);
+    return out;
+}
+
+/// Render the SPL plot for the given filtered models into a QPixmap.
+QPixmap renderSplPlot(const QList<BoxModel>& filtered,
+                      double appliedPower,
+                      bool perDriverMode,
+                      QSize sizePx)
+{
+    ResponsePlot plot;
+    plot.setAttribute(Qt::WA_DontShowOnScreen);
+    plot.resize(sizePx);
+    plot.setPower(appliedPower);
+    plot.setPerDriverMode(perDriverMode);
+    plot.setModels(filtered, -1);  // no active highlight in the report
+    plot.ensurePolished();
+
+    QPixmap px(sizePx);
+    px.fill(Qt::white);
+    plot.render(&px);
+    return px;
+}
 
 /// Show a modal dialog that lets the user pick which models to include.
 /// `defaultIndices` pre-selects rows when "Selected models" is chosen.
@@ -88,7 +124,18 @@ bool PdfReport::exportToFile(QWidget* parent,
     const QList<int> chosen = runScopeDialog(parent, models, opts.selectedIndices);
     if (chosen.isEmpty()) return false;  // cancel OR zero checked
 
+    const auto filtered = filterModels(models, chosen);
+    const QPixmap px = renderSplPlot(filtered, opts.appliedPower,
+                                     opts.perDriverMode, QSize(1600, 900));
+
+    const QString tmp = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+                        + "/tsboss_spl_test.png";
+    if (!px.save(tmp, "PNG")) {
+        QMessageBox::warning(parent, "PDF Export",
+            "Could not write test pixmap to " + tmp);
+        return false;
+    }
     QMessageBox::information(parent, "PDF Export",
-        QString("Stub: would export %1 model(s).").arg(chosen.size()));
+        "SPL plot rendered to " + tmp);
     return true;
 }
