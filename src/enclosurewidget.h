@@ -333,6 +333,7 @@ private slots:
     void onLoadModel();
     void onSaveProject();
     void onLoadProject();
+    void onExportPdf();
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
@@ -478,6 +479,7 @@ private:
     QLabel *m_resLblFc  = nullptr;  ///< "Fc:" label (becomes "fb:" for vented)
     QLabel *m_resLblQtc = nullptr;  ///< "Qtc:" label (hidden for vented)
     QLabel *m_statusLbl = nullptr;
+    QPushButton *m_btnExportPdf = nullptr;
 
     // Plot tabs
     QTabWidget    *m_plotTabs  = nullptr;

@@ -3,6 +3,7 @@
 #include "noscrollspinbox.h"
 #include "driverdetailwidget.h"
 #include "theme.h"
+#include "pdfreport.h"
 #include <complex>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -2199,10 +2200,15 @@ void EnclosureWidget::buildUi()
         leftVb->addWidget(btnSaveProject);
         leftVb->addWidget(btnLoadProject);
 
+        m_btnExportPdf = mkBtn("Export PDF  ·  .pdf");
+        m_btnExportPdf->setToolTip("Export the current project as a PDF report");
+        leftVb->addWidget(m_btnExportPdf);
+
         connect(btnSaveModel,   &QPushButton::clicked, this, &EnclosureWidget::onSaveModel);
         connect(btnLoadModel,   &QPushButton::clicked, this, &EnclosureWidget::onLoadModel);
         connect(btnSaveProject, &QPushButton::clicked, this, &EnclosureWidget::onSaveProject);
         connect(btnLoadProject, &QPushButton::clicked, this, &EnclosureWidget::onLoadProject);
+        connect(m_btnExportPdf,  &QPushButton::clicked, this, &EnclosureWidget::onExportPdf);
     }
 
     leftVb->addStretch();
@@ -5291,4 +5297,23 @@ void EnclosureWidget::onLoadProject()
     m_statusLbl->setStyleSheet(
         "color:#A3E635; font-family:'IBM Plex Mono',monospace; font-size:8pt;");
     m_statusLbl->setText("Project loaded: " + QFileInfo(path).fileName());
+}
+
+void EnclosureWidget::onExportPdf()
+{
+    if (m_models.isEmpty()) {
+        QMessageBox::information(this, "No models",
+            "Add at least one model before exporting a PDF report.");
+        return;
+    }
+
+    PdfReportOptions opts;
+    opts.projectName    = deriveProjectFileBaseName(m_models, m_db);
+    opts.selectedIndices.reserve(m_models.size());
+    for (int i = 0; i < m_models.size(); ++i)
+        opts.selectedIndices.append(i);
+    opts.appliedPower   = m_splPower ? m_splPower->value() : 1.0;
+    opts.perDriverMode  = m_perDriverPower && m_perDriverPower->isChecked();
+
+    PdfReport::exportToFile(this, m_models, opts, m_db);
 }
