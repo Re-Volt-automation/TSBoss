@@ -55,3 +55,19 @@ set_target_properties(TSBoss PROPERTIES
 )
 
 qt_finalize_executable(TSBoss)
+
+# --- Installation (used by AppImage / .deb packaging) ---
+include(GNUInstallDirs)
+
+install(TARGETS TSBoss
+    BUNDLE  DESTINATION .
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+install(FILES packaging/TSBoss.desktop
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications
+)
+
+install(FILES packaging/TSBoss.svg
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps
+)

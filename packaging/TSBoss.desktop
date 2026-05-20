@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=TSBoss
+GenericName=T/S Parameter Manager
+Comment=Measure, store and model Thiele/Small loudspeaker driver parameters
+Exec=TSBoss
+Icon=TSBoss
+Terminal=false
+Categories=Education;Science;Engineering;Audio;Qt;
+Keywords=loudspeaker;speaker;driver;ThieleSmall;enclosure;acoustics;

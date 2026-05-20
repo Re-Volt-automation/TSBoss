@@ -13,3 +13,8 @@ Makefile
 *.pro.user
 .DS_Store
 .claude/
+
+# AppImage / packaging build artifacts
+build-appimage/
+packaging/tools/
+*.AppImage
