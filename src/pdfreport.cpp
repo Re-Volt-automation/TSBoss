@@ -346,6 +346,14 @@ bool PdfReport::exportToFile(QWidget* parent,
 
     const auto filtered = filterModels(models, chosen);
 
+    if (filtered.size() > 10) {
+        QMessageBox::information(parent, "PDF Export",
+            QStringLiteral("This report compares up to 10 models. "
+                           "You selected %1 — please choose 10 or fewer.")
+                .arg(filtered.size()));
+        return false;
+    }
+
     const QString defaultName = (opts.projectName.isEmpty()
                                  ? QStringLiteral("enclosure")
                                  : opts.projectName) + ".pdf";
