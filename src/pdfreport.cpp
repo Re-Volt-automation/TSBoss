@@ -2,6 +2,7 @@
 #include "enclosurewidget.h"   // for BoxModel
 #include "driverdb.h"          // for DriverDatabase
 #include <cmath>
+#include <functional>
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QWidget>
@@ -44,91 +45,136 @@ bool hasPort(BoxModel::EncType t) {
         || t == BoxModel::EncType::Bandpass6;
 }
 QString portShapeLabel(int s) { return s == 0 ? "Round" : "Rectangular"; }
+bool isBandpass(BoxModel::EncType t) {
+    return t == BoxModel::EncType::Bandpass4
+        || t == BoxModel::EncType::Bandpass6;
+}
+QString naCell() { return QStringLiteral("&mdash;"); }
+QString modelLabel(int i) { return QStringLiteral("M%1").arg(i + 1); }
 
-QString buildModelSection(const BoxModel& m,
-                          DriverDatabase* db,
-                          double appliedPower)
+// One legend, referenced by both the plots and the comparison tables:
+// colored swatch + short M# label + full model name.
+QString buildSharedLegend(const QList<BoxModel>& filtered) {
+    QString h = "<table cellpadding='2' cellspacing='0' "
+                "style='font-size:8pt; margin-bottom:8pt;'>";
+    for (int i = 0; i < filtered.size(); ++i) {
+        const auto& m = filtered[i];
+        const QString name = m.name.isEmpty()
+            ? QStringLiteral("(unnamed)") : m.name.toHtmlEscaped();
+        h += QStringLiteral(
+            "<tr>"
+            "<td><span style='display:inline-block; width:10pt; height:10pt; "
+            "background:%1;'></span></td>"
+            "<td><b>%2</b></td>"
+            "<td>%3</td>"
+            "</tr>")
+            .arg(m.color.name(), modelLabel(i), name);
+    }
+    h += "</table>";
+    return h;
+}
+
+// A single comparison row: a label and a per-model value producer.
+struct CmpRow {
+    QString label;
+    std::function<QString(const BoxModel&)> value;
+};
+
+// Render one grouped table. Rows whose value is naCell() for EVERY model
+// are dropped, so type-specific rows (alpha, front fb, ports) only appear
+// when at least one included model has them. Models are columns (M1..Mn).
+QString buildCmpTable(const QString& heading,
+                      const QList<CmpRow>& rows,
+                      const QList<BoxModel>& filtered)
 {
-    QString driverDesc = "(no driver linked)";
-    if (m.driverId >= 0 && db && db->isOpen()) {
-        const auto r = db->loadDriver(m.driverId);
-        if (!r.make.isEmpty() || !r.model.isEmpty())
-            driverDesc = QString("%1 %2").arg(r.make, r.model).trimmed();
-        else
-            driverDesc = "(driver not found in database)";
-    }
+    QString h = QStringLiteral("<h3>%1</h3>").arg(heading);
+    h += "<table border='1' cellpadding='2' cellspacing='0' "
+         "style='font-size:8pt;'>";
 
-    QString h;
-    h += "<div class='pagebreak'></div>";
-    h += QStringLiteral("<h2>%1</h2>").arg(m.name.toHtmlEscaped());
-    h += QStringLiteral("<div class='meta'>%1 &middot; %2</div>")
-         .arg(encTypeLabel(m.encType).toHtmlEscaped(), driverDesc.toHtmlEscaped());
+    h += "<tr><td style='background:#eee;'><b>Parameter</b></td>";
+    for (int i = 0; i < filtered.size(); ++i)
+        h += QStringLiteral("<td style='background:#eee;'><b>%1</b></td>")
+             .arg(modelLabel(i));
+    h += "</tr>";
 
-    // Table A — Driver T/S
-    h += "<h3>Driver T/S</h3><table border='1' cellpadding='4' cellspacing='0'>";
-    h += QString("<tr><td>fs</td><td>%1 Hz</td></tr>").arg(fmt(m.fs, 1));
-    h += QString("<tr><td>Vas</td><td>%1 L</td></tr>").arg(fmt(m.Vas_L, 2));
-    h += QString("<tr><td>Qts</td><td>%1</td></tr>").arg(fmt(m.Qts, 3));
-    h += QString("<tr><td>Qes</td><td>%1</td></tr>").arg(fmt(m.Qes, 3));
-    h += QString("<tr><td>Qms</td><td>%1</td></tr>").arg(fmt(m.Qms, 3));
-    h += QString("<tr><td>Re</td><td>%1 &Omega;</td></tr>").arg(fmt(m.Re, 2));
-    h += QString("<tr><td>mms</td><td>%1 g</td></tr>").arg(fmt(m.mms_g, 2));
-    h += QString("<tr><td>BL</td><td>%1 Tm</td></tr>").arg(fmt(m.BL, 2));
-    h += QString("<tr><td>Sd</td><td>%1 cm&sup2;</td></tr>").arg(fmt(m.Sd_cm2, 1));
-    h += QString("<tr><td>Drivers</td><td>%1</td></tr>").arg(m.numDrivers);
-    h += "</table>";
-
-    // Table B — Enclosure
-    h += "<h3>Enclosure</h3><table border='1' cellpadding='4' cellspacing='0'>";
-    h += QString("<tr><td>Type</td><td>%1</td></tr>").arg(encTypeLabel(m.encType).toHtmlEscaped());
-    h += QString("<tr><td>Volume</td><td>%1 L</td></tr>").arg(fmt(m.volumeL, 2));
-    if (hasPort(m.encType)) {
-        h += QString("<tr><td>fb</td><td>%1 Hz</td></tr>").arg(fmt(m.fb, 1));
-        h += QString("<tr><td>QL</td><td>%1</td></tr>").arg(fmt(m.QL, 2));
-    }
-    if (m.encType == BoxModel::EncType::Bandpass4 ||
-        m.encType == BoxModel::EncType::Bandpass6) {
-        h += QString("<tr><td>Front volume</td><td>%1 L</td></tr>").arg(fmt(m.volumeFront_L, 2));
-        h += QString("<tr><td>Front fb</td><td>%1 Hz</td></tr>").arg(fmt(m.fbFront, 1));
-    }
-    if (m.encType == BoxModel::EncType::Sealed) {
-        h += QString("<tr><td>alpha</td><td>%1</td></tr>").arg(fmt(m.alpha, 3));
-        h += QString("<tr><td>Fc</td><td>%1 Hz</td></tr>").arg(fmt(m.Fc, 1));
-        h += QString("<tr><td>Qtc</td><td>%1</td></tr>").arg(fmt(m.Qtc, 3));
-    }
-    h += QString("<tr><td>f3</td><td>%1 Hz</td></tr>").arg(fmt(m.f3, 1));
-    h += QString("<tr><td>&eta;&#8320;</td><td>%1 %</td></tr>").arg(fmt(m.eta, 3));
-    h += QString("<tr><td>Reference SPL (1W/1m)</td><td>%1 dB</td></tr>").arg(fmt(m.spl, 1));
-    h += "</table>";
-
-    // Table C — Port geometry (only if ported)
-    if (hasPort(m.encType)) {
-        h += "<h3>Port Geometry (rear)</h3><table border='1' cellpadding='4' cellspacing='0'>";
-        h += QString("<tr><td>Shape</td><td>%1</td></tr>").arg(portShapeLabel(m.portShape));
-        if (m.portShape == 0) {
-            h += QString("<tr><td>Diameter</td><td>%1 mm</td></tr>").arg(fmt(m.portWidth_mm, 1));
-        } else {
-            h += QString("<tr><td>Width</td><td>%1 mm</td></tr>").arg(fmt(m.portWidth_mm, 1));
-            h += QString("<tr><td>Height</td><td>%1 mm</td></tr>").arg(fmt(m.portHeight_mm, 1));
-            h += QString("<tr><td>Shared walls</td><td>%1</td></tr>").arg(m.portWalls);
+    for (const auto& row : rows) {
+        bool anyReal = false;
+        QStringList cells;
+        for (const auto& m : filtered) {
+            const QString v = row.value(m);
+            if (v != naCell()) anyReal = true;
+            cells << v;
         }
-        h += QString("<tr><td>Number of ports</td><td>%1</td></tr>").arg(m.numPorts);
-        if (m.portF2H > 0)
-            h += QString("<tr><td>2nd pipe harmonic</td><td>%1 Hz</td></tr>").arg(fmt(m.portF2H, 1));
-        h += "</table>";
-    }
+        if (!anyReal) continue;
 
-    // Table D — Applied power & predicted output
-    h += "<h3>Applied Power &amp; Predicted Output</h3>";
-    h += "<table border='1' cellpadding='4' cellspacing='0'>";
-    h += QString("<tr><td>Applied power</td><td>%1 W</td></tr>").arg(fmt(appliedPower, 2));
-    h += QString("<tr><td>Predicted passband SPL</td><td>%1 dB</td></tr>")
-         .arg(fmt(m.spl + 10.0 * std::log10(std::max(appliedPower, 1e-6)), 1));
-    if (m.xmax_mm > 0)
-        h += QString("<tr><td>Driver Xmax</td><td>%1 mm</td></tr>").arg(fmt(m.xmax_mm, 2));
-    if (m.xlim_mm > 0)
-        h += QString("<tr><td>Driver Xlim</td><td>%1 mm</td></tr>").arg(fmt(m.xlim_mm, 2));
+        h += QStringLiteral("<tr><td>%1</td>").arg(row.label);
+        for (const QString& c : cells)
+            h += QStringLiteral("<td align='right'>%1</td>").arg(c);
+        h += "</tr>";
+    }
     h += "</table>";
+    return h;
+}
+
+QString buildComparativeTables(const QList<BoxModel>& filtered,
+                               DriverDatabase* db,
+                               double appliedPower)
+{
+    Q_UNUSED(db);
+
+    QString h = "<div class='pagebreak'></div>";
+    h += "<h2>Model Comparison</h2>";
+    h += buildSharedLegend(filtered);
+
+    const QList<CmpRow> driver = {
+        {"fs (Hz)",   [](const BoxModel& m){ return fmt(m.fs, 1); }},
+        {"Vas (L)",   [](const BoxModel& m){ return fmt(m.Vas_L, 2); }},
+        {"Qts",       [](const BoxModel& m){ return fmt(m.Qts, 3); }},
+        {"Qes",       [](const BoxModel& m){ return fmt(m.Qes, 3); }},
+        {"Qms",       [](const BoxModel& m){ return fmt(m.Qms, 3); }},
+        {"Re (Ohm)",  [](const BoxModel& m){ return fmt(m.Re, 2); }},
+        {"mms (g)",   [](const BoxModel& m){ return fmt(m.mms_g, 2); }},
+        {"BL (Tm)",   [](const BoxModel& m){ return fmt(m.BL, 2); }},
+        {"Sd (cm2)",  [](const BoxModel& m){ return fmt(m.Sd_cm2, 1); }},
+        {"# drivers", [](const BoxModel& m){ return QString::number(m.numDrivers); }},
+    };
+    h += buildCmpTable("Driver T/S", driver, filtered);
+
+    const QList<CmpRow> enclosure = {
+        {"Type",            [](const BoxModel& m){ return encTypeLabel(m.encType).toHtmlEscaped(); }},
+        {"Volume (L)",      [](const BoxModel& m){ return fmt(m.volumeL, 2); }},
+        {"fb (Hz)",         [](const BoxModel& m){ return hasPort(m.encType) ? fmt(m.fb, 1) : naCell(); }},
+        {"QL",              [](const BoxModel& m){ return hasPort(m.encType) ? fmt(m.QL, 2) : naCell(); }},
+        {"Front vol (L)",   [](const BoxModel& m){ return isBandpass(m.encType) ? fmt(m.volumeFront_L, 2) : naCell(); }},
+        {"Front fb (Hz)",   [](const BoxModel& m){ return isBandpass(m.encType) ? fmt(m.fbFront, 1) : naCell(); }},
+        {"alpha",           [](const BoxModel& m){ return m.encType == BoxModel::EncType::Sealed ? fmt(m.alpha, 3) : naCell(); }},
+        {"Fc (Hz)",         [](const BoxModel& m){ return m.encType == BoxModel::EncType::Sealed ? fmt(m.Fc, 1) : naCell(); }},
+        {"Qtc",             [](const BoxModel& m){ return m.encType == BoxModel::EncType::Sealed ? fmt(m.Qtc, 3) : naCell(); }},
+        {"Port shape",      [](const BoxModel& m){ return hasPort(m.encType) ? portShapeLabel(m.portShape) : naCell(); }},
+        {"Port size (mm)",  [](const BoxModel& m) -> QString {
+            if (!hasPort(m.encType)) return naCell();
+            return m.portShape == 0
+                ? QStringLiteral("D %1").arg(fmt(m.portWidth_mm, 1))
+                : QStringLiteral("%1 x %2").arg(fmt(m.portWidth_mm, 1), fmt(m.portHeight_mm, 1));
+        }},
+        {"Shared walls",    [](const BoxModel& m){ return (hasPort(m.encType) && m.portShape != 0) ? QString::number(m.portWalls) : naCell(); }},
+        {"# ports",         [](const BoxModel& m){ return hasPort(m.encType) ? QString::number(m.numPorts) : naCell(); }},
+        {"2nd harmonic (Hz)", [](const BoxModel& m){ return (hasPort(m.encType) && m.portF2H > 0) ? fmt(m.portF2H, 1) : naCell(); }},
+    };
+    h += buildCmpTable("Enclosure &amp; Port", enclosure, filtered);
+
+    const double power = appliedPower;
+    const QList<CmpRow> results = {
+        {"f3 (Hz)",            [](const BoxModel& m){ return fmt(m.f3, 1); }},
+        {"eta0 (%)",           [](const BoxModel& m){ return fmt(m.eta, 3); }},
+        {"Ref SPL 1W/1m (dB)", [](const BoxModel& m){ return fmt(m.spl, 1); }},
+        {"Applied power (W)",  [power](const BoxModel&){ return fmt(power, 2); }},
+        {"Passband SPL (dB)",  [power](const BoxModel& m){
+            return fmt(m.spl + 10.0 * std::log10(std::max(power, 1e-6)), 1); }},
+        {"Xmax (mm)",          [](const BoxModel& m){ return m.xmax_mm > 0 ? fmt(m.xmax_mm, 2) : naCell(); }},
+        {"Xlim (mm)",          [](const BoxModel& m){ return m.xlim_mm > 0 ? fmt(m.xlim_mm, 2) : naCell(); }},
+    };
+    h += buildCmpTable("Results & Output", results, filtered);
 
     return h;
 }
@@ -175,20 +221,6 @@ QPixmap renderPv(const QList<BoxModel>& m, double power, bool perDriver, QSize s
     QPixmap px(sz); px.fill(Qt::white); p.render(&px); return px;
 }
 
-QString buildLegendHtml(const QList<BoxModel>& filtered) {
-    QString h = "<div style='font-size: 9pt; margin-bottom: 6pt;'>";
-    for (int i = 0; i < filtered.size(); ++i) {
-        const auto& m = filtered[i];
-        if (i > 0) h += "&nbsp;&nbsp;";
-        h += QStringLiteral(
-            "<span style='display:inline-block; width:10pt; height:10pt; "
-            "background:%1; vertical-align:middle;'></span> %2")
-            .arg(m.color.name(), m.name.toHtmlEscaped());
-    }
-    h += "</div>";
-    return h;
-}
-
 QString buildHtml(const PdfReportOptions& opts,
                   const QList<BoxModel>& filtered,
                   DriverDatabase* db)
@@ -206,9 +238,10 @@ QString buildHtml(const PdfReportOptions& opts,
         "<html><head><style>"
         "body { font-family: sans-serif; color: #111; }"
         "h1 { font-size: 22pt; margin-bottom: 4pt; }"
-        "h2 { font-size: 16pt; margin-top: 18pt; border-bottom: 1px solid #888; padding-bottom: 2pt; }"
+        "h2 { font-size: 16pt; margin-top: 6pt; margin-bottom: 4pt; }"
+        "h3 { font-size: 12pt; margin-top: 12pt; margin-bottom: 3pt; }"
         ".meta { color: #555; font-size: 10pt; margin-bottom: 14pt; }"
-        ".plot { margin-bottom: 14pt; }"
+        ".plot { margin-bottom: 10pt; }"
         ".pagebreak { page-break-before: always; }"
         "</style></head><body>");
 
@@ -222,15 +255,19 @@ QString buildHtml(const PdfReportOptions& opts,
         "SPL Response", "Group Delay", "Voltage Demand",
         "Cone Excursion", "Port Velocity"
     };
+    // Two plots per page: force a page break before plots 0, 2, 4.
+    // The shared legend sits once at the top of the first plots page.
     for (int i = 0; i < 5; ++i) {
-        html += QStringLiteral("<div class='pagebreak'></div>");
+        if (i % 2 == 0)
+            html += QStringLiteral("<div class='pagebreak'></div>");
+        if (i == 0)
+            html += buildSharedLegend(filtered);
         html += QStringLiteral("<h2>%1</h2>").arg(titles[i]);
-        html += buildLegendHtml(filtered);
-        html += QStringLiteral("<img class='plot' src='plot://%1' width='720'>").arg(keys[i]);
+        html += QStringLiteral("<img class='plot' src='plot://%1' width='1000'>")
+                .arg(keys[i]);
     }
 
-    for (const auto& m : filtered)
-        html += buildModelSection(m, db, opts.appliedPower);
+    html += buildComparativeTables(filtered, db, opts.appliedPower);
 
     html += QStringLiteral("</body></html>");
     return html;
@@ -317,7 +354,7 @@ bool PdfReport::exportToFile(QWidget* parent,
         "PDF Document (*.pdf)");
     if (path.isEmpty()) return false;
 
-    const QSize plotPx(1600, 900);
+    const QSize plotPx(2000, 1150);   // ~1.74:1 -> 1000px wide scales to ~575px tall
     const QPixmap pxSpl  = renderSpl (filtered, opts.appliedPower, opts.perDriverMode, plotPx);
     const QPixmap pxGd   = renderGd  (filtered, plotPx);
     const QPixmap pxVolt = renderVolt(filtered, opts.appliedPower, opts.perDriverMode, plotPx);
