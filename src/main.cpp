@@ -12,7 +12,7 @@ int main(int argc, char *argv[])
     app.setApplicationDisplayName("TSBoss – T/S Parameter Manager");
     app.setOrganizationName("TSBoss");
     app.setOrganizationDomain("tsboss.local");
-    app.setApplicationVersion("1.0.0");
+    app.setApplicationVersion("1.1.0");
 
     // Clean base style
     app.setStyle(QStyleFactory::create("Fusion"));
