@@ -28,6 +28,7 @@ set(PROJECT_SOURCES
     src/driverdetailwidget.cpp
     src/datasheetentrywidget.h
     src/datasheetentrywidget.cpp
+    src/boxmodel.h
     src/enclosurewidget.h
     src/enclosurewidget.cpp
     src/pdfreport.h
