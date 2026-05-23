@@ -106,6 +106,13 @@ int main() {
         check(relGain(flared, 2000.0) >= relGain(straight, 2000.0) - 1e-6,
               "flared port compresses less than straight");
     }
+    // Chuffing limit rises with flare (sharp 17 < one-end 22 < both-ends 28).
+    {
+        check(chuffLimit(0) == 17.0, "chuffLimit(straight) == 17 m/s");
+        check(chuffLimit(1) == 22.0, "chuffLimit(one-end flared) == 22 m/s");
+        check(chuffLimit(2) == 28.0, "chuffLimit(both-ends flared) == 28 m/s");
+        check(chuffLimit(2) > chuffLimit(0), "flared chuffing limit exceeds sharp");
+    }
 
     return g_failures == 0 ? 0 : 1;
 }

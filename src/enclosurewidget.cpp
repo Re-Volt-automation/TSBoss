@@ -1752,15 +1752,25 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
                    Qt::AlignRight|Qt::AlignVCenter, lbl);
     }
 
-    // Reference line at 17 m/s (chuffing onset)
-    constexpr double CHUFF_MS = 17.0;
-    if (CHUFF_MS >= yMin && CHUFF_MS <= yMax) {
+    // Reference line at the flare-dependent chuffing-onset velocity. Tracks the
+    // active model's port flare (flared ports tolerate higher velocity); falls
+    // back to the first valid model, then the sharp-port 17 m/s default.
+    double chuffMs = 17.0;
+    if (m_activeIdx >= 0 && m_activeIdx < m_models.size()
+        && hasPortVelocityData(m_models[m_activeIdx])) {
+        chuffMs = chuffLimit(m_models[m_activeIdx].portFlare);
+    } else {
+        for (const auto &mm : m_models)
+            if (hasPortVelocityData(mm)) { chuffMs = chuffLimit(mm.portFlare); break; }
+    }
+    if (chuffMs >= yMin && chuffMs <= yMax) {
         p.setPen(QPen(Theme::instance().statusError(), 1.0, Qt::DashLine));
-        p.drawLine(QPointF(area.left(), yPx(CHUFF_MS)), QPointF(area.right(), yPx(CHUFF_MS)));
+        p.drawLine(QPointF(area.left(), yPx(chuffMs)), QPointF(area.right(), yPx(chuffMs)));
         QFont rf; rf.setPointSize(7); p.setFont(rf);
         p.setPen(Theme::instance().statusError());
-        p.drawText(QRectF(area.left()+4, yPx(CHUFF_MS)-13, 80, 12),
-                   Qt::AlignLeft|Qt::AlignVCenter, "17 m/s limit");
+        p.drawText(QRectF(area.left()+4, yPx(chuffMs)-13, 90, 12),
+                   Qt::AlignLeft|Qt::AlignVCenter,
+                   QString("%1 m/s limit").arg(int(std::round(chuffMs))));
     }
 
     // Axis titles

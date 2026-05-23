@@ -68,6 +68,19 @@ inline double flareK(int portFlare)
     }
 }
 
+// Chuffing-onset air velocity [m/s] for the displayed reference line, by flare.
+// A flare/radius keeps the flow attached through the area change, delaying the
+// turbulent jetting that causes audible chuffing — so flared ports tolerate a
+// higher velocity than the classic ~17 m/s (≈5% Mach) sharp-port rule of thumb.
+inline double chuffLimit(int portFlare)
+{
+    switch (portFlare) {
+        case 2:  return 28.0;  // both ends flared
+        case 1:  return 22.0;  // one end flared
+        default: return 17.0;  // straight / sharp
+    }
+}
+
 // Velocity-aware complex port impedance. u = port particle velocity [m/s].
 //   Zport(u) = (Rp_visc + Rp_turb(u)) + jω·Map(u)
 inline Cpx portZ(const BoxModel &m, double f, double u)
