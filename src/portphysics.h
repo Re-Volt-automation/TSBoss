@@ -54,36 +54,67 @@ inline DriverScaling driverScaling(const BoxModel &m)
     }
 }
 
+// Turbulent end-loss coefficient from BoxModel::portFlare
+// (0 = straight, 1 = one end flared, 2 = both ends flared).
+// Stub returns 0 (inert) until Task 6 activates the turbulent term.
+inline double flareK(int /*portFlare*/) { return 0.0; }
+
+// Velocity-aware complex port impedance. u = port particle velocity [m/s].
+//   Zport(u) = (Rp_visc + Rp_turb(u)) + jω·Map(u)
+inline Cpx portZ(const BoxModel &m, double f, double u)
+{
+    const double omega  = 2.0 * PI * f;
+    const double omegab = 2.0 * PI * m.fb;
+    const double Vb     = m.volumeL * 1e-3;
+    // Note: Cab is derived here and again in portCore (both from volumeL); kept
+    // independent so portZ stays a self-contained impedance model.
+    const double Cab    = Vb / (RHO * g_C * g_C);
+    const double Map0   = 1.0 / (omegab * omegab * Cab);
+    const double Rp_visc = omegab * Map0 / m.QL;
+
+    const double Ap      = std::max(portArea_m2(m), 1e-9);
+    const double Rp_turb = 0.5 * RHO * flareK(m.portFlare) * std::abs(u) / Ap;
+    // mapVelCoeff is a BoxModel field defaulting to 0 (tuning-shift hook, off in v1),
+    // so Map == Map0 today; wired in for later validation.
+    const double Map     = Map0 * (1.0 - m.mapVelCoeff * std::abs(u));
+    return Cpx(Rp_visc + Rp_turb, omega * Map);
+}
+
+struct PortCoreResult { Cpx cone, port; double Zin; };
+
+// Solve the driver/box/port circuit for a 1 V drive given a fixed port impedance.
+inline PortCoreResult portCore(const BoxModel &m, double f, const Cpx &Zport)
+{
+    const auto   ds   = driverScaling(m);
+    const double omega = 2.0 * PI * f;
+    const double mms   = ds.mms, Sd = ds.Sd, BL = ds.BL, Re_eff = ds.Re_eff;
+    const double Vb    = m.volumeL * 1e-3;
+    const double Cms   = 1.0 / (4.0*PI*PI * m.fs*m.fs * mms);
+    const double Rms   = 2.0*PI * m.fs * mms / m.Qms;
+    const double Cab   = Vb / (RHO * g_C * g_C);
+
+    const Cpx Ze(Re_eff, 0.0);
+    const Cpx Zm(Rms, omega*mms - 1.0/(omega*Cms));
+    const Cpx Zcab(0.0, -1.0/(omega*Cab));
+    const Cpx Za    = Zcab * Zport / (Zcab + Zport);
+    const Cpx denom = Ze*Zm + Cpx(BL*BL) + Ze*(Sd*Sd*Za);
+    // Degenerate solve: no motion. Zin falls back to Re (unloaded voice-coil impedance).
+    if (std::abs(denom) < 1e-100) return { Cpx(0.0), Cpx(0.0), m.Re };
+    const Cpx v   = Cpx(BL) / denom;
+    const Cpx Up  = (Sd * v * Za) / Zport;
+    const Cpx Zmot = Zm + Cpx(Sd*Sd)*Za;
+    const double Zin = std::abs(Ze + Cpx(BL*BL) / Zmot);
+    return { Sd * v, Up, Zin };
+}
+
 // Decomposed acoustic output: cone = Sd·v,  port = Up
 struct PortedAmps { Cpx cone, port; };
 
 inline PortedAmps portedAmplitudes(const BoxModel &m, double f)
 {
     if (!hasPortedData(m)) return {};
-    const auto   ds     = driverScaling(m);
-    const double omega  = 2.0 * PI * f;
-    const double omegab = 2.0 * PI * m.fb;
-    const double mms    = ds.mms;
-    const double Sd     = ds.Sd;
-    const double BL     = ds.BL;
-    const double Re_eff = ds.Re_eff;
-    const double Vb     = m.volumeL * 1e-3;
-    const double Cms    = 1.0 / (4.0*PI*PI * m.fs*m.fs * mms);
-    const double Rms    = 2.0*PI * m.fs * mms / m.Qms;
-    const double Cab    = Vb / (RHO * g_C * g_C);
-    const double Map    = 1.0 / (omegab*omegab*Cab);
-    const double Rp     = omegab * Map / m.QL;
-
-    const Cpx Ze(Re_eff, 0.0);
-    const Cpx Zm(Rms, omega*mms - 1.0/(omega*Cms));
-    const Cpx Zcab(0.0, -1.0/(omega*Cab));
-    const Cpx Zport(Rp, omega*Map);
-    const Cpx Za   = Zcab * Zport / (Zcab + Zport);
-    const Cpx denom = Ze*Zm + Cpx(BL*BL) + Ze*(Sd*Sd*Za);
-    if (std::abs(denom) < 1e-100) return {};
-    const Cpx v  = Cpx(BL) / denom;
-    const Cpx Up = (Sd * v * Za) / Zport;
-    return { Sd * v, Up };
+    const PortCoreResult c = portCore(m, f, portZ(m, f, 0.0));
+    return { c.cone, c.port };
 }
 
 // Total radiated acoustic volume velocity.
@@ -127,26 +158,7 @@ inline double portedGroupDelay(const BoxModel &m, double f)
 inline double portedImpedance(const BoxModel &m, double f)
 {
     if (!hasPortedData(m)) return m.Re;
-    const auto   ds     = driverScaling(m);
-    const double omega  = 2.0 * PI * f;
-    const double omegab = 2.0 * PI * m.fb;
-    const double mms    = ds.mms;
-    const double Sd     = ds.Sd;
-    const double BL     = ds.BL;
-    const double Re_eff = ds.Re_eff;
-    const double Vb     = m.volumeL * 1e-3;
-    const double Cms    = 1.0 / (4.0*PI*PI * m.fs*m.fs * mms);
-    const double Rms    = 2.0*PI * m.fs * mms / m.Qms;
-    const double Cab    = Vb / (RHO * g_C * g_C);
-    const double Map    = 1.0 / (omegab*omegab*Cab);
-    const double Rp     = omegab * Map / m.QL;
-    const Cpx Ze(Re_eff, 0.0);
-    const Cpx Zm(Rms, omega*mms - 1.0/(omega*Cms));
-    const Cpx Zcab(0.0, -1.0/(omega*Cab));
-    const Cpx Zport(Rp, omega*Map);
-    const Cpx Za   = Zcab * Zport / (Zcab + Zport);
-    const Cpx Zmot = Zm + Cpx(Sd*Sd)*Za;
-    return std::abs(Ze + Cpx(BL*BL) / Zmot);
+    return portCore(m, f, portZ(m, f, 0.0)).Zin;
 }
 
 // Peak port air velocity [m/s] at given input power [W]
