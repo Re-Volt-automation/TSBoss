@@ -54,10 +54,19 @@ inline DriverScaling driverScaling(const BoxModel &m)
     }
 }
 
-// Turbulent end-loss coefficient from BoxModel::portFlare
-// (0 = straight, 1 = one end flared, 2 = both ends flared).
-// Stub returns 0 (inert) until Task 6 activates the turbulent term.
-inline double flareK(int /*portFlare*/) { return 0.0; }
+// Turbulent end-loss coefficient from the existing portFlare field:
+//   0 = straight (both ends sharp), 1 = one end flared, 2 = both ends flared.
+// K is the minor-loss coefficient for the port ends: flared ends shed far less
+// turbulence than sharp ones. Values are engineering defaults (sharp ~1.0,
+// radiused ~0.5-0.6, well-flared ~0.2); see docs/superpowers/specs/2026-05-23-port-friction-compression-design.md.
+inline double flareK(int portFlare)
+{
+    switch (portFlare) {
+        case 2:  return 0.2;   // both ends flared
+        case 1:  return 0.6;   // one end flared
+        default: return 1.0;   // straight / sharp
+    }
+}
 
 // Velocity-aware complex port impedance. u = port particle velocity [m/s].
 //   Zport(u) = (Rp_visc + Rp_turb(u)) + jω·Map(u)

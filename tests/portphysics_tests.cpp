@@ -55,5 +55,39 @@ int main() {
         check(std::isfinite(u) && u >= 0.0, "portedSolve converges to finite u");
     }
 
+    // Compression: at high power the port-region output gains less than the
+    // small-signal case (normalised to 1 kHz, where the cone dominates).
+    {
+        auto gainAtFb = [&](double power) {
+            const double ref = portedSplRaw(m, 1000.0, power);
+            return 20.0 * std::log10(portedSplRaw(m, m.fb, power) / ref);
+        };
+        const double lowP  = gainAtFb(1e-3);
+        const double highP = gainAtFb(2000.0);
+        check(highP <= lowP + 1e-6, "port-region gain compresses at high power");
+        check(lowP - highP > 0.1,   "compression is non-trivial (>0.1 dB)");
+    }
+    // Saddle fill: the impedance minimum between the two ported peaks rises with power.
+    {
+        auto saddleZ = [&](double power) {
+            double zmin = 1e9;
+            for (double f = m.fb*0.7; f <= m.fb*1.4; f += 0.5)
+                zmin = std::min(zmin, portedImpedance(m, f, power));
+            return zmin;
+        };
+        check(saddleZ(2000.0) >= saddleZ(1e-3) - 1e-6, "impedance saddle fills with power");
+    }
+    // Flare ranking: straight ports lose more (lower gain at fb) than flared.
+    {
+        BoxModel straight = m; straight.portFlare = 0;
+        BoxModel flared   = m; flared.portFlare   = 2;
+        auto relGain = [](const BoxModel &mm, double power) {
+            return 20.0*std::log10(pp::portedSplRaw(mm, mm.fb, power)
+                                 / pp::portedSplRaw(mm, 1000.0, power));
+        };
+        check(relGain(flared, 2000.0) >= relGain(straight, 2000.0) - 1e-6,
+              "flared port compresses less than straight");
+    }
+
     return g_failures == 0 ? 0 : 1;
 }
