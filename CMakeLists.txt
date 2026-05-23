@@ -29,6 +29,7 @@ set(PROJECT_SOURCES
     src/datasheetentrywidget.h
     src/datasheetentrywidget.cpp
     src/boxmodel.h
+    src/portphysics.h
     src/enclosurewidget.h
     src/enclosurewidget.cpp
     src/pdfreport.h
