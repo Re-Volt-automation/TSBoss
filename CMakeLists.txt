@@ -32,6 +32,8 @@ set(PROJECT_SOURCES
     src/portphysics.h
     src/enclosurewidget.h
     src/enclosurewidget.cpp
+    src/diagrams/diagrampainter.h
+    src/diagrams/diagrampainter.cpp
     src/pdfreport.h
     src/pdfreport.cpp
     src/theme.h
