@@ -34,6 +34,8 @@ set(PROJECT_SOURCES
     src/enclosurewidget.cpp
     src/diagrams/diagrampainter.h
     src/diagrams/diagrampainter.cpp
+    src/diagrams/diagramview.h
+    src/diagrams/diagramview.cpp
     src/pdfreport.h
     src/pdfreport.cpp
     src/theme.h
