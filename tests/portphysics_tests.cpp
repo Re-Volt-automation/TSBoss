@@ -39,14 +39,20 @@ int main() {
         {  100, 0.7473100746,  7.876039923},
         { 1000, 0.7334199631,  6.015052579},
     };
+    // Golden now evaluated at the linear limit (power -> 0):
     for (auto &g : golden) {
-        const double spl = portedSplRaw(m, g.f);
-        const double Z   = portedImpedance(m, g.f);
+        const double spl = portedSplRaw(m, g.f, 1e-12);
+        const double Z   = portedImpedance(m, g.f, 1e-12);
         char msgSpl[64], msgZ[64];
-        std::snprintf(msgSpl, sizeof(msgSpl), "golden SPL @ %.0f Hz", g.f);
-        std::snprintf(msgZ,   sizeof(msgZ),   "golden Z   @ %.0f Hz", g.f);
+        std::snprintf(msgSpl, sizeof(msgSpl), "golden SPL @ %.0f Hz (power->0)", g.f);
+        std::snprintf(msgZ,   sizeof(msgZ),   "golden Z   @ %.0f Hz (power->0)", g.f);
         check(std::abs(spl - g.spl) <= 1e-6 * std::max(std::abs(g.spl), 1e-12), msgSpl);
         check(std::abs(Z   - g.Z)   <= 1e-6 * std::max(std::abs(g.Z),   1e-12), msgZ);
+    }
+    // Convergence: solve returns finite u across the sweep at high power.
+    for (double f : kFreqs) {
+        const double u = portAirVelocity(m, f, 1000.0);
+        check(std::isfinite(u) && u >= 0.0, "portedSolve converges to finite u");
     }
 
     return g_failures == 0 ? 0 : 1;

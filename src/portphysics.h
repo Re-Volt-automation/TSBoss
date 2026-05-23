@@ -110,12 +110,30 @@ inline PortCoreResult portCore(const BoxModel &m, double f, const Cpx &Zport)
 // Decomposed acoustic output: cone = Sd·v,  port = Up
 struct PortedAmps { Cpx cone, port; };
 
-inline PortedAmps portedAmplitudes(const BoxModel &m, double f)
+struct PortedSolution { Cpx cone, port; double Zin; double u; };
+
+// Fixed-point solve: port loss depends on velocity u, and u depends on the
+// drive voltage V = sqrt(power*Zin). Iterate to convergence (max 4 passes).
+// Cold start u=0 per frequency; tolerance 1e-4 relative.
+inline PortedSolution portedSolve(const BoxModel &m, double f, double power)
 {
-    if (!hasPortedData(m)) return {};
-    const PortCoreResult c = portCore(m, f, portZ(m, f, 0.0));
-    return { c.cone, c.port };
+    if (!hasPortedData(m)) return { Cpx(0.0), Cpx(0.0), m.Re, 0.0 };
+    const int    N  = std::max(1, m.numPorts);
+    const double Ap = std::max(portArea_m2(m), 1e-9);
+    double u = 0.0;
+    PortCoreResult c{};                 // populated on the first loop iteration (cold start u=0)
+    for (int i = 0; i < 4; ++i) {
+        c = portCore(m, f, portZ(m, f, u));
+        const double V = (c.Zin > 0.0 && power > 0.0) ? std::sqrt(power * c.Zin) : 0.0;
+        const double u_new = std::abs(c.port) * V / (N * Ap);
+        if (std::abs(u_new - u) <= 1e-4 * std::max(u_new, 1.0)) { u = u_new; break; }
+        u = u_new;
+    }
+    return { c.cone, c.port, c.Zin, u };
 }
+
+inline PortedAmps portedAmplitudes(const BoxModel &m, double f, double power)
+{ auto s = portedSolve(m, f, power); return { s.cone, s.port }; }
 
 // Total radiated acoustic volume velocity.
 // Cone and port are acoustically anti-phase: positive cone velocity (inward)
@@ -123,28 +141,25 @@ inline PortedAmps portedAmplitudes(const BoxModel &m, double f)
 // contribution is −Sd·v and the port is +Up, so the net is proportional to
 // Sd·v − Up.  Using the opposite sign would give a null at ≈√2·fb and only
 // a 12 dB/oct rolloff below fb instead of the correct 24 dB/oct (4th order).
-inline Cpx portedUa(const BoxModel &m, double f)
-{
-    auto a = portedAmplitudes(m, f);
-    return a.cone - a.port;
-}
+inline Cpx portedUa(const BoxModel &m, double f, double power)
+{ auto a = portedAmplitudes(m, f, power); return a.cone - a.port; }
 
 // ω·|Ua|  (total, cone-only, port-only) — unnormalised far-field pressure proxy
-inline double portedSplRaw     (const BoxModel &m, double f)
-{ return (2.0*PI*f)*std::abs(portedUa(m,f)); }
+inline double portedSplRaw(const BoxModel &m, double f, double power)
+{ return (2.0*PI*f) * std::abs(portedUa(m, f, power)); }
 
-inline double portedConeSplRaw (const BoxModel &m, double f)
-{ auto a=portedAmplitudes(m,f); return (2.0*PI*f)*std::abs(a.cone); }
+inline double portedConeSplRaw(const BoxModel &m, double f, double power)
+{ auto a = portedAmplitudes(m, f, power); return (2.0*PI*f) * std::abs(a.cone); }
 
-inline double portedPortSplRaw (const BoxModel &m, double f)
-{ auto a=portedAmplitudes(m,f); return (2.0*PI*f)*std::abs(a.port); }
+inline double portedPortSplRaw(const BoxModel &m, double f, double power)
+{ auto a = portedAmplitudes(m, f, power); return (2.0*PI*f) * std::abs(a.port); }
 
 // Group delay [ms] via numerical phase derivative of Ua
-inline double portedGroupDelay(const BoxModel &m, double f)
+inline double portedGroupDelay(const BoxModel &m, double f, double power)
 {
     const double df = std::max(f * 0.002, 0.02);
-    const Cpx ua1 = portedUa(m, f + df);
-    const Cpx ua2 = portedUa(m, f - df);
+    const Cpx ua1 = portedUa(m, f + df, power);
+    const Cpx ua2 = portedUa(m, f - df, power);
     if (std::abs(ua1) < 1e-100 || std::abs(ua2) < 1e-100) return 0.0;
     // Group delay τ = −dφ/dω.  Central-difference: dφ ≈ arg(conj(ua2)·ua1)
     // which equals φ(f+df)−φ(f−df).  For a causal system the phase decreases
@@ -155,25 +170,12 @@ inline double portedGroupDelay(const BoxModel &m, double f)
 }
 
 // Input electrical impedance magnitude [Ω] for a ported box
-inline double portedImpedance(const BoxModel &m, double f)
-{
-    if (!hasPortedData(m)) return m.Re;
-    return portCore(m, f, portZ(m, f, 0.0)).Zin;
-}
+inline double portedImpedance(const BoxModel &m, double f, double power)
+{ if (!hasPortedData(m)) return m.Re; return portedSolve(m, f, power).Zin; }
 
 // Peak port air velocity [m/s] at given input power [W]
 inline double portAirVelocity(const BoxModel &m, double f, double power)
-{
-    if (!hasPortedData(m) || m.Re <= 0) return 0.0;
-    const double Ap = portArea_m2(m);
-    if (Ap <= 0) return 0.0;
-    const int    N  = std::max(1, m.numPorts);
-    const double Z  = portedImpedance(m, f);
-    if (Z <= 0) return 0.0;
-    const double V  = std::sqrt(power * Z);
-    const auto   a  = portedAmplitudes(m, f);
-    return std::abs(a.port) * V / (N * Ap);
-}
+{ return portedSolve(m, f, power).u; }
 
 inline bool hasPortVelocityData(const BoxModel &m)
 {

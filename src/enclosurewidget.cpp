@@ -329,18 +329,18 @@ static BPMetrics bandpassMetrics(const BoxModel &m)
 }
 
 // Numerically find system f₋₃ for a ported box
-static double portedF3(const BoxModel &m)
+static double portedF3(const BoxModel &m, double power)
 {
     if (!hasPortedData(m)) return 0.0;
-    const double ref    = portedSplRaw(m, 1000.0);
+    const double ref    = portedSplRaw(m, 1000.0, power);
     if (ref <= 0) return 0.0;
     const double target = ref * std::pow(10.0, -3.0/20.0);
     // Binary search: response < target below f3, ≥ target above
     double lo = 1.0, hi = 500.0;
-    if (portedSplRaw(m, hi) < target) return 0.0; // degenerate
+    if (portedSplRaw(m, hi, power) < target) return 0.0; // degenerate
     for (int i = 0; i < 64; ++i) {
         const double mid = std::sqrt(lo * hi);
-        (portedSplRaw(m, mid) < target) ? lo = mid : hi = mid;
+        (portedSplRaw(m, mid, power) < target) ? lo = mid : hi = mid;
     }
     return std::sqrt(lo * hi);
 }
@@ -479,11 +479,11 @@ void ResponsePlot::paintEvent(QPaintEvent *)
         const double pwrOffset = mp > 0.0 ? 10.0 * std::log10(mp) : 0.0;
         if (isVented(m)) {
             if (!hasPortedData(m) || m.spl <= 0) continue;
-            const double ref = portedSplRaw(m, 1000.0);
+            const double ref = portedSplRaw(m, 1000.0, mp);
             if (ref <= 0) continue;
             for (int i = 0; i <= SPL_SCAN; ++i) {
                 const double f   = std::pow(10.0, lfMin + (lfMax - lfMin)*i/double(SPL_SCAN));
-                const double raw = portedSplRaw(m, f);
+                const double raw = portedSplRaw(m, f, mp);
                 if (raw <= 0) continue;
                 const double db  = m.spl + pwrOffset + 20.0*std::log10(raw / ref);
                 if (std::isfinite(db)) { yMax = std::max(yMax, db); yMin = std::min(yMin, db); }
@@ -595,7 +595,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
 
         if (isVented(m)) {
             if (!hasPortedData(m) || m.spl <= 0) return;
-            const double ref = portedSplRaw(m, 1000.0);
+            const double ref = portedSplRaw(m, 1000.0, mp);
             if (ref <= 0) return;
 
             // Helper: build a path from a raw-SPL function
@@ -617,7 +617,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
 
             // Total — solid, full weight
             {
-                QPainterPath path = buildPortedPath(portedSplRaw);
+                QPainterPath path = buildPortedPath([mp](const BoxModel &mm, double ff){ return portedSplRaw(mm, ff, mp); });
                 QColor c = m.color; if (!active) c.setAlpha(100);
                 p.setPen(QPen(c, active ? 3.0 : 1.8, Qt::SolidLine));
                 p.setBrush(Qt::NoBrush);
@@ -625,7 +625,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
             }
             // Cone contribution — dashed
             {
-                QPainterPath path = buildPortedPath(portedConeSplRaw);
+                QPainterPath path = buildPortedPath([mp](const BoxModel &mm, double ff){ return portedConeSplRaw(mm, ff, mp); });
                 QColor c = m.color; c.setAlpha(active ? 160 : 70);
                 QPen pen(c, active ? 1.8 : 1.2, Qt::DashLine);
                 p.setPen(pen); p.setBrush(Qt::NoBrush);
@@ -633,7 +633,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
             }
             // Port contribution — dotted
             {
-                QPainterPath path = buildPortedPath(portedPortSplRaw);
+                QPainterPath path = buildPortedPath([mp](const BoxModel &mm, double ff){ return portedPortSplRaw(mm, ff, mp); });
                 QColor c = m.color; c.setAlpha(active ? 160 : 70);
                 QPen pen(c, active ? 1.8 : 1.2, Qt::DotLine);
                 p.setPen(pen); p.setBrush(Qt::NoBrush);
@@ -851,16 +851,16 @@ void ResponsePlot::paintEvent(QPaintEvent *)
             const double pwrOffset = mp > 0.0 ? 10.0 * std::log10(mp) : 0.0;
             if (isVented(m)) {
                 if (!hasPortedData(m) || m.spl <= 0) continue;
-                const double ref = portedSplRaw(m, 1000.0);
+                const double ref = portedSplRaw(m, 1000.0, mp);
                 if (ref <= 0) continue;
                 // Total
-                const double dbTotal = m.spl + pwrOffset + 20.0*std::log10(portedSplRaw(m, cf) / ref);
+                const double dbTotal = m.spl + pwrOffset + 20.0*std::log10(portedSplRaw(m, cf, mp) / ref);
                 entries.append({m.color, active,
                                 m.name + " (total)",
                                 yPx(dbTotal), QString("%1 dB").arg(dbTotal, 0, 'f', 1)});
                 // Cone
                 QColor cc = m.color; cc.setAlpha(active ? 200 : 120);
-                const double rawCone = portedConeSplRaw(m, cf);
+                const double rawCone = portedConeSplRaw(m, cf, mp);
                 if (rawCone > 0) {
                     const double dbCone = m.spl + pwrOffset + 20.0*std::log10(rawCone / ref);
                     entries.append({cc, false,
@@ -868,7 +868,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                                     yPx(dbCone), QString("%1 dB").arg(dbCone, 0, 'f', 1)});
                 }
                 // Port
-                const double rawPort = portedPortSplRaw(m, cf);
+                const double rawPort = portedPortSplRaw(m, cf, mp);
                 if (rawPort > 0) {
                     const double dbPort = m.spl + pwrOffset + 20.0*std::log10(rawPort / ref);
                     entries.append({cc, false,
@@ -929,7 +929,7 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
                 if (!hasPortedData(m)) continue;
                 for (int i = 0; i <= GD_SCAN; ++i) {
                     const double f  = std::pow(10.0, lfLo + (lfHi-lfLo)*i/double(GD_SCAN));
-                    const double gd = portedGroupDelay(m, f);
+                    const double gd = portedGroupDelay(m, f, 0.0 /* power: no GD power control; linear limit (Task 6: revisit) */);
                     if (std::isfinite(gd) && gd > 0) yMax = std::max(yMax, gd);
                 }
                 anyValid = true;
@@ -1017,7 +1017,7 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
             for (int i = 0; i <= 500; ++i) {
                 const double lf = lfMin + (lfMax-lfMin)*i/500.0;
                 const double f  = std::pow(10.0, lf);
-                const double gd = portedGroupDelay(m, f);
+                const double gd = portedGroupDelay(m, f, 0.0 /* power: no GD power control; linear limit (Task 6: revisit) */);
                 if (gd < 0 || gd > yMax*2) continue;
                 const QPointF pt(xPx(f), yPx(gd));
                 if (first) { curve.moveTo(pt); first = false; } else curve.lineTo(pt);
@@ -1090,7 +1090,7 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
             double gd;
             if (isVented(m)) {
                 if (!hasPortedData(m)) continue;
-                gd = portedGroupDelay(m, cf);
+                gd = portedGroupDelay(m, cf, 0.0 /* power: no GD power control; linear limit (Task 6: revisit) */);
             } else if (isBandpass(m)) {
                 if (isBP6(m) ? !hasBP6Data(m) : !hasBP4Data(m)) continue;
                 gd = bandpassGroupDelay(m, cf);
@@ -1139,9 +1139,9 @@ static bool hasImpedanceData(const BoxModel &m)
 }
 
 // Impedance magnitude |Z(f)|
-static double boxImpedance(const BoxModel &m, double f)
+static double boxImpedance(const BoxModel &m, double f, double power)
 {
-    if (isVented(m))   return portedImpedance(m, f);
+    if (isVented(m))   return portedImpedance(m, f, power);
     if (isBandpass(m)) return bandpassImpedance(m, f);
     const double wc      = 2.0 * PI * m.Fc;
     const double mms     = m.mms_g / 1000.0;
@@ -1166,9 +1166,9 @@ static bool hasSystemZData(const BoxModel &m)
     return m.Re > 0 && m.BL > 0 && m.mms_g > 0 && m.Qms > 0 && m.Fc > 0 && m.alpha > 0;
 }
 
-static double systemImpedance(const BoxModel &m, double f)
+static double systemImpedance(const BoxModel &m, double f, double power)
 {
-    if (isVented(m))   return portedImpedance(m, f);   // portedImpedance already scales for N
+    if (isVented(m))   return portedImpedance(m, f, power);   // portedImpedance already scales for N
     if (isBandpass(m)) return bandpassImpedance(m, f); // bandpassImpedance scales for N
     const double N = m.numDrivers;
     if (!hasSystemZData(m)) return m.Re * N;
@@ -1204,9 +1204,9 @@ static double coneDisplacement_mm(const BoxModel &m, double f, double power)
         if (!hasPortedData(m)) return 0.0;
         const double Sd = m.Sd_cm2 * 1e-4;
         if (Sd <= 0) return 0.0;
-        auto a = portedAmplitudes(m, f);        // cone = Sd·v  for 1 V input
+        auto a = portedAmplitudes(m, f, power); // cone = Sd·v  for 1 V input
         const double v_1V = std::abs(a.cone) / Sd;
-        const double Z = portedImpedance(m, f);
+        const double Z = portedImpedance(m, f, power);
         if (Z <= 0) return 0.0;
         // V = sqrt(P·Z),  |x| = |v_1V|·V / ω
         return v_1V * std::sqrt(power * Z) / omega * 1000.0;
@@ -1229,7 +1229,7 @@ static double coneDisplacement_mm(const BoxModel &m, double f, double power)
         const double Rms_box = wc * mms / Qms_c;
         const double Zm_i    = omega * mms - 1.0 / (omega * Cms_box);
         const double Zm_abs  = std::sqrt(Rms_box * Rms_box + Zm_i * Zm_i);
-        const double Z_elec  = systemImpedance(m, f);
+        const double Z_elec  = systemImpedance(m, f, power);
         if (Z_elec <= 0 || Zm_abs <= 0) return 0.0;
         // |x| = BL · |I| / (|Zm| · ω),  |I| = sqrt(P / Z)
         return m.BL * std::sqrt(power / Z_elec) / (Zm_abs * omega) * 1000.0;
@@ -1259,8 +1259,9 @@ void VoltagePlot::paintEvent(QPaintEvent *)
     // Current delivered by one amp = V / Z_amp. For series/parallel this is
     // the single amp's draw; for separate it's the current per amp channel.
     auto ampCurrent = [&](const BoxModel &m, double f) {
-        const double Z = systemImpedance(m, f);
-        return Z > 0 ? std::sqrt(perAmpPower(m) / Z) : 0.0;
+        const double mp = perAmpPower(m);
+        const double Z = systemImpedance(m, f, mp);
+        return Z > 0 ? std::sqrt(mp / Z) : 0.0;
     };
 
     // Y ranges: scan all models for both V (left axis) and I (right axis).
@@ -1274,7 +1275,7 @@ void VoltagePlot::paintEvent(QPaintEvent *)
         for (int i = 0; i <= 60; ++i) {
             const double lf = lfMin + (lfMax-lfMin)*i/60.0;
             const double f  = std::pow(10.0, lf);
-            const double Z  = systemImpedance(m, f);
+            const double Z  = systemImpedance(m, f, mp);
             const double V  = std::sqrt(mp * Z);
             const double I  = Z > 0 ? std::sqrt(mp / Z) : 0.0;
             yMax = std::max(yMax, V);
@@ -1371,7 +1372,7 @@ void VoltagePlot::paintEvent(QPaintEvent *)
         for (int i = 0; i <= 500; ++i) {
             const double lf = lfMin + (lfMax-lfMin)*i/500.0;
             const double f  = std::pow(10.0, lf);
-            const double Z  = systemImpedance(m, f);
+            const double Z  = systemImpedance(m, f, mp);
             if (Z <= 0) continue;
             const double V  = std::sqrt(mp * Z);
             const double I  = std::sqrt(mp / Z);
@@ -1425,9 +1426,9 @@ void VoltagePlot::paintEvent(QPaintEvent *)
         for (int i = 0; i < m_models.size(); ++i) {
             const auto &m = m_models[i];
             if (!hasSystemZData(m)) continue;
-            const double Z = systemImpedance(m, m_cursorFreq);
-            if (Z <= 0) continue;
             const double mp = perAmpPower(m);
+            const double Z = systemImpedance(m, m_cursorFreq, mp);
+            if (Z <= 0) continue;
             const double V = std::sqrt(mp * Z);
             const double I = std::sqrt(mp / Z);
             const QString zStr = Z < 10.0 ? QString::number(Z, 'f', 1)
@@ -4665,7 +4666,7 @@ void EnclosureWidget::recalculate(int index)
             // ── Vented (ported) box ───────────────────────────────────
             m.Fc  = me.fb;  // store port tuning in Fc slot for display
             m.Qtc = 0.0;    // no single Qtc for a vented system
-            m.f3  = portedF3(me);
+            m.f3  = portedF3(me, 0.0 /* power: small-signal f3 */);
         }
     }
 
