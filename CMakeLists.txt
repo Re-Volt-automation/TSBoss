@@ -73,3 +73,11 @@ install(FILES packaging/TSBoss.desktop
 install(FILES packaging/TSBoss.svg
     DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps
 )
+
+# --- Tests ---
+enable_testing()
+add_executable(portphysics_tests tests/portphysics_tests.cpp)
+# Qt6::Gui is required because BoxModel has a QColor field (QtGui), pulled in via boxmodel.h.
+target_link_libraries(portphysics_tests PRIVATE Qt6::Core Qt6::Gui)
+target_include_directories(portphysics_tests PRIVATE src)
+add_test(NAME portphysics_tests COMMAND portphysics_tests)
