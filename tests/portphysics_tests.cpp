@@ -55,6 +55,24 @@ int main() {
         check(std::isfinite(u) && u >= 0.0, "portedSolve converges to finite u");
     }
 
+    // Small-port / high-power convergence: the returned u must actually satisfy the
+    // fixed-point equation u = |port(Rp(u))|·sqrt(power·Zin)/(N·Ap), not just be the
+    // arbitrary value left after the iteration cap. Verify the residual is small.
+    {
+        BoxModel sp = makeModel();
+        sp.portWidth_mm = 20.0;          // small round port — provokes divergence
+        const double power = 1000.0, f = sp.fb;
+        const auto   s  = pp::portedSolve(sp, f, power);
+        const double Ap = std::max(pp::portArea_m2(sp), 1e-9);
+        const int    N  = std::max(1, sp.numPorts);
+        const auto   c  = pp::portCore(sp, f, pp::portZ(sp, f, s.u));
+        const double V  = std::sqrt(power * c.Zin);
+        const double u_check = std::abs(c.port) * V / (N * Ap);
+        check(std::isfinite(s.u) && s.u >= 0.0, "small-port solve returns finite u");
+        check(std::abs(u_check - s.u) <= 1e-2 * std::max(s.u, 1.0),
+              "small-port high-power solve converges (fixed-point residual small)");
+    }
+
     // Compression: at high power the port-region output gains less than the
     // small-signal case (normalised to 1 kHz, where the cone dominates).
     {

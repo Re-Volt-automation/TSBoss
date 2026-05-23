@@ -122,22 +122,27 @@ struct PortedAmps { Cpx cone, port; };
 struct PortedSolution { Cpx cone, port; double Zin; double u; };
 
 // Fixed-point solve: port loss depends on velocity u, and u depends on the
-// drive voltage V = sqrt(power*Zin). Iterate to convergence (max 4 passes).
-// Cold start u=0 per frequency; tolerance 1e-4 relative.
+// drive voltage V = sqrt(power*Zin). Iterate to convergence using under-relaxation
+// (alpha=0.5) to guarantee contraction for small port areas / high power where the
+// plain map has gain >1 and diverges. Cold start u=0; tolerance 1e-4 relative.
 inline PortedSolution portedSolve(const BoxModel &m, double f, double power)
 {
     if (!hasPortedData(m)) return { Cpx(0.0), Cpx(0.0), m.Re, 0.0 };
     const int    N  = std::max(1, m.numPorts);
     const double Ap = std::max(portArea_m2(m), 1e-9);
+    constexpr double alpha = 0.5;   // under-relaxation: damps the u-update for stability
     double u = 0.0;
-    PortCoreResult c{};                 // populated on the first loop iteration (cold start u=0)
-    for (int i = 0; i < 4; ++i) {
+    PortCoreResult c{};             // populated on the first loop iteration (cold start u=0)
+    for (int i = 0; i < 24; ++i) {
         c = portCore(m, f, portZ(m, f, u));
         const double V = (c.Zin > 0.0 && power > 0.0) ? std::sqrt(power * c.Zin) : 0.0;
-        const double u_new = std::abs(c.port) * V / (N * Ap);
+        const double target = std::abs(c.port) * V / (N * Ap);
+        const double u_new  = u + alpha * (target - u);   // relaxed step toward fixed point
         if (std::abs(u_new - u) <= 1e-4 * std::max(u_new, 1.0)) { u = u_new; break; }
         u = u_new;
     }
+    // Recompute c with the final converged u so cone/port/Zin are self-consistent.
+    c = portCore(m, f, portZ(m, f, u));
     return { c.cone, c.port, c.Zin, u };
 }
 
