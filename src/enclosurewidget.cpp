@@ -3831,6 +3831,7 @@ void EnclosureWidget::updatePortLength()
         if (m_portSurfAreaLbl) m_portSurfAreaLbl->setText("–");
         if (m_portVolInnerLbl) m_portVolInnerLbl->setText("–");
         if (m_portVolDisplLbl) m_portVolDisplLbl->setText("–");
+        if (m_portDiagram)     m_portDiagram->setDraw(nullptr);
     };
 
     if (!m_portLenLbl) return;
