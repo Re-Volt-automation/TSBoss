@@ -703,5 +703,14 @@ void MainWindow::showAbout()
         "delay is the numerical phase derivative of the total acoustic output.</p>"
         "<p><b>Database:</b> SQLite, stored in the application data directory; "
         "schema is migrated forward via additive ALTER&nbsp;TABLE steps.</p>"
+        "<hr>"
+        "<p><b>Support the project:</b><br>"
+        "TSBoss is a free, one-person side project. If it has been useful and "
+        "you'd like to help keep it actively developed, a small donation of any "
+        "amount is genuinely appreciated &mdash; there's no minimum.<br>"
+        "<a href=\"https://www.paypal.com/ncp/payment/88KEBEEQCC6CQ\">Donate via PayPal</a></p>"
+        "<p><b>Bugs &amp; feedback:</b><br>"
+        "Found a bug, or have a feature request? Email "
+        "<a href=\"mailto:wessellemmer@gmail.com\">wessellemmer@gmail.com</a>.</p>"
     );
 }
