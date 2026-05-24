@@ -2945,10 +2945,6 @@ void EnclosureWidget::buildUi()
                 "padding:4px 0 2px 0;"));
             fpvb->addWidget(divLbl);
 
-            auto *fpcols = new QHBoxLayout;
-            fpcols->setSpacing(0);
-            fpcols->setContentsMargins(0,0,0,0);
-
             // Col 1: shape + # ports
             {
                 auto *f = new QFormLayout;
@@ -2979,11 +2975,8 @@ void EnclosureWidget::buildUi()
                 auto *col1fp = new QWidget;
                 col1fp->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
                 col1fp->setLayout(f);
-                fpcols->addWidget(col1fp);
+                fpvb->addWidget(col1fp);
             }
-
-            fpcols->addWidget(mkVDiv());
-            fpcols->addSpacing(6);
 
             // Col 2: round / rect dimensions
             {
@@ -3077,12 +3070,8 @@ void EnclosureWidget::buildUi()
                 }
 
                 cv2fp->addStretch();
-                fpcols->addWidget(col2fp);
+                fpvb->addWidget(col2fp);
             }
-
-            fpcols->addSpacing(6);
-            fpcols->addWidget(mkVDiv());
-            fpcols->addSpacing(6);
 
             // Col 3: computed results
             {
@@ -3111,10 +3100,9 @@ void EnclosureWidget::buildUi()
                 cv3fp->setContentsMargins(0,0,0,0);
                 cv3fp->addLayout(g);
                 cv3fp->addStretch();
-                fpcols->addWidget(col3fp);
+                fpvb->addWidget(col3fp);
             }
-            fpcols->addStretch();
-            fpvb->addLayout(fpcols);
+            fpvb->addStretch();
         }
         // m_frontPortSection is homed into m_portArrangeHost by
         // rebuildPortArrangement(); do not add it to vb directly.
