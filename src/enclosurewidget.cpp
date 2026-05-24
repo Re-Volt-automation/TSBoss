@@ -2946,7 +2946,7 @@ void EnclosureWidget::buildUi()
             divLbl->setStyleSheet(themed(
                 "font-family:'IBM Plex Sans',sans-serif; font-weight:700;"
                 "font-size:8pt; color:#7DD3FC; letter-spacing:2px;"
-                "border-top:1px solid %border%; padding:4px 0 2px 0;"));
+                "padding:4px 0 2px 0;"));
             fpvb->addWidget(divLbl);
 
             auto *fpcols = new QHBoxLayout;
