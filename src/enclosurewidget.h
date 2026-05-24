@@ -250,6 +250,7 @@ private:
     void    clearFields();
     void    updatePortGroup();
     void    updatePortLength();
+    void    rebuildPortArrangement(bool bp6);  ///< re-home Port-tab blocks per enclosure type
     QColor  nextColor() const;
     QString serializeModels() const;
     void    deserializeModels(const QString &json);
@@ -320,6 +321,11 @@ private:
     QLabel            *m_portFbLabel    = nullptr;  ///< "fb:" row label in Port tab (hidden for BP)
     QLabel            *m_portQLLabel    = nullptr;  ///< "QL:" row label in Port tab (hidden for BP)
     QLabel            *m_portSectionHdr = nullptr;  ///< "REAR PORT" / "FRONT PORT" context header
+    QWidget           *m_portColControls = nullptr; ///< rear tuning/shape/flare column (col1)
+    QWidget           *m_portDimsBlock   = nullptr; ///< rear dimension rows (round/rect)
+    QWidget           *m_portBraceBlock  = nullptr; ///< rear bracing-surface row
+    QWidget           *m_portColResults  = nullptr; ///< rear results grid column (col3)
+    QWidget           *m_portArrangeHost = nullptr; ///< host whose layout is rebuilt per enclosure type
     // Front port geometry section (BP6 only)
     QWidget           *m_frontPortSection  = nullptr;
     QComboBox         *m_portFrontShape    = nullptr;

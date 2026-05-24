@@ -20,6 +20,7 @@
 #include <QScrollArea>
 #include <QSplitter>
 #include <QFrame>
+#include <QLayoutItem>
 #include <QPainter>
 #include <QPainterPath>
 #include <QFont>
@@ -2710,10 +2711,16 @@ void EnclosureWidget::buildUi()
             return w;
         };
 
-        // 3-column horizontal layout: [Tuning+Shape] | [Dimensions] | [Results]
-        auto *cols = new QHBoxLayout;
-        cols->setSpacing(0);
-        cols->setContentsMargins(0,0,0,0);
+        // Port-tab columns are promoted to members and arranged by
+        // rebuildPortArrangement() into m_portArrangeHost per enclosure type.
+
+        // Vertical divider (used by the front-port-section sub-columns below).
+        auto mkVDiv = [] {
+            auto *d = new QFrame;
+            d->setFrameShape(QFrame::VLine);
+            d->setStyleSheet(themed("color:%border%; background:%border%; max-width:1px;"));
+            return d;
+        };
 
         // ── Column 1: tuning, count, shape, flare ─────────────
         {
@@ -2753,30 +2760,16 @@ void EnclosureWidget::buildUi()
             f->addRow(mkFormLabel("Shape:"),   mkComboRow(m_portShape));
             f->addRow(mkFormLabel("Flare:"),   mkComboRow(m_portFlare));
 
-            auto *col1 = new QWidget;
-            col1->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
-            col1->setLayout(f);
-            cols->addWidget(col1);
+            m_portColControls = new QWidget;
+            m_portColControls->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+            m_portColControls->setLayout(f);
         }
 
-        // Vertical divider
-        auto mkVDiv = [] {
-            auto *d = new QFrame;
-            d->setFrameShape(QFrame::VLine);
-            d->setStyleSheet(themed("color:%border%; background:%border%; max-width:1px;"));
-            return d;
-        };
-        cols->addWidget(mkVDiv());
-        cols->addSpacing(6);
-
         // ── Column 2: shape-specific dimensions ────────────────
+        // The dimension rows and the bracing row become movable member blocks;
+        // m_portDiagram stays a standalone member. They are arranged into
+        // m_portArrangeHost by rebuildPortArrangement() per enclosure type.
         {
-            auto *col2 = new QWidget;
-            col2->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-            auto *cv = new QVBoxLayout(col2);
-            cv->setContentsMargins(0,0,0,0);
-            cv->setSpacing(0);
-
             // Round section
             m_portDiamRow = new QWidget;
             {
@@ -2820,8 +2813,6 @@ void EnclosureWidget::buildUi()
                 f->addRow(mkFormLabel("Extends into box:"), m_inPortInsert);
                 f->addRow(mkFormLabel(""),                  insertSliderRow);
             }
-            cv->addWidget(m_portDiamRow);
-
             // Rect section (hidden by default)
             m_portRectRows = new QWidget;
             m_portRectRows->setVisible(false);
@@ -2862,14 +2853,26 @@ void EnclosureWidget::buildUi()
                     "End corrections: 0→0.732·De, 1→0.8216·De, 2→0.8730·De, 3→0.8860·De");
                 f->addRow(mkFormLabel("Port walls:"), mkComboRow(m_portWalls));
             }
-            cv->addWidget(m_portRectRows);
+            // rear dimension rows (round + rect) as one movable block
+            m_portDimsBlock = new QWidget;
+            {
+                auto *v = new QVBoxLayout(m_portDimsBlock);
+                v->setContentsMargins(0,0,0,0);
+                v->setSpacing(0);
+                v->addWidget(m_portDiamRow);
+                v->addWidget(m_portRectRows);
+            }
 
             // Schematic port cross-section diagram.
             m_portDiagram = new DiagramView;
-            cv->addWidget(m_portDiagram);
 
-            // Extra surface area (optional, e.g. bracing) — always visible
+            // Extra surface area (optional, e.g. bracing) — always visible.
+            // Wrapped as a movable member block.
+            m_portBraceBlock = new QWidget;
             {
+                auto *bv = new QVBoxLayout(m_portBraceBlock);
+                bv->setContentsMargins(0,0,0,0);
+                bv->setSpacing(0);
                 auto *extraRow = new QWidget;
                 auto *f = new QFormLayout(extraRow);
                 f->setLabelAlignment(Qt::AlignRight);
@@ -2882,16 +2885,9 @@ void EnclosureWidget::buildUi()
                     "Optional extra surface area (e.g. bracing obstructing the port).\n"
                     "Added to the computed inner surface area.");
                 f->addRow(mkFormLabel("Bracing surf. area:"), m_inPortBraceSurf);
-                cv->addWidget(extraRow);
+                bv->addWidget(extraRow);
             }
-
-            cv->addStretch();
-            cols->addWidget(col2);
         }
-
-        cols->addSpacing(6);
-        cols->addWidget(mkVDiv());
-        cols->addSpacing(6);
 
         // ── Column 3: computed results ─────────────────────────
         {
@@ -2922,17 +2918,17 @@ void EnclosureWidget::buildUi()
                 "f₂H = c / Lp_eff  (= 2 × first pipe resonance)\n"
                 "Above this frequency the port may produce pipe coloration.");
 
-            auto *col3 = new QWidget;
-            auto *cv3 = new QVBoxLayout(col3);
+            m_portColResults = new QWidget;
+            auto *cv3 = new QVBoxLayout(m_portColResults);
             cv3->setContentsMargins(0,0,0,0);
             cv3->addLayout(g);
             cv3->addStretch();
-            col3->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
-            cols->addWidget(col3);
+            m_portColResults->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
         }
 
-        cols->addStretch();
-        vb->addLayout(cols);
+        // Host whose layout rebuildPortArrangement() rebuilds per enclosure type.
+        m_portArrangeHost = new QWidget;
+        vb->addWidget(m_portArrangeHost);
 
         // ── FRONT PORT SECTION (BP6 only) ─────────────────────────────
         m_frontPortSection = new QWidget;
@@ -3120,9 +3116,13 @@ void EnclosureWidget::buildUi()
             fpcols->addStretch();
             fpvb->addLayout(fpcols);
         }
-        vb->addWidget(m_frontPortSection);
+        // m_frontPortSection is homed into m_portArrangeHost by
+        // rebuildPortArrangement(); do not add it to vb directly.
 
         vb->addStretch();
+
+        // Seed the standard (vented/BP4/sealed) arrangement.
+        rebuildPortArrangement(false);
 
         // Wire up port tab signals
         for (auto *s : {m_inFb, m_inQL, m_inPortDiam, m_inPortWallThick,
@@ -3684,7 +3684,7 @@ void EnclosureWidget::onEncTypeChanged(int index)
         if (bp4)      m_portSectionHdr->setText("FRONT PORT");
         else if (bp6) m_portSectionHdr->setText("REAR PORT");
     }
-    if (m_frontPortSection) m_frontPortSection->setVisible(bp6);
+    rebuildPortArrangement(bp6);
     if (m_btnBessel) m_btnBessel->setVisible(sealed);
     if (m_btnB2)     m_btnB2    ->setVisible(sealed);
     if (m_btnB4)     m_btnB4    ->setVisible(vented);
@@ -3795,6 +3795,68 @@ void EnclosureWidget::onAlignB4()
     m.fb = fb;
     if (m_inFb) { m_inFb->blockSignals(true); m_inFb->setValue(fb); m_inFb->blockSignals(false); }
     recalculate(m_activeIdx); updateModelList(); updatePlot();
+}
+
+void EnclosureWidget::rebuildPortArrangement(bool bp6)
+{
+    if (!m_portArrangeHost) return;
+
+    // Detach persistent blocks from whatever layout currently holds them.
+    QWidget *blocks[] = { m_portColControls, m_portDimsBlock, m_portDiagram,
+                          m_portBraceBlock, m_portColResults, m_frontPortSection };
+    for (QWidget *b : blocks) if (b) b->setParent(nullptr);
+
+    // Delete the old host layout (and any transient wrapper widgets it owned).
+    if (QLayout *old = m_portArrangeHost->layout()) {
+        QLayoutItem *it;
+        while ((it = old->takeAt(0)) != nullptr) {
+            if (QWidget *w = it->widget()) w->deleteLater();  // transient wrappers only (blocks already detached)
+            delete it;
+        }
+        delete old;
+    }
+
+    auto mkVDiv = [] {
+        auto *d = new QFrame;
+        d->setFrameShape(QFrame::VLine);
+        d->setStyleSheet(themed("color:%border%; background:%border%; max-width:1px;"));
+        return d;
+    };
+
+    if (bp6) {
+        // REAR (inputs then results) | diagram | FRONT
+        auto *row = new QHBoxLayout(m_portArrangeHost);
+        row->setContentsMargins(0,0,0,0); row->setSpacing(6);
+        auto *left = new QWidget; auto *lv = new QVBoxLayout(left);
+        lv->setContentsMargins(0,0,0,0); lv->setSpacing(6);
+        if (m_portColControls) lv->addWidget(m_portColControls);
+        if (m_portDimsBlock)   lv->addWidget(m_portDimsBlock);
+        if (m_portBraceBlock)  lv->addWidget(m_portBraceBlock);
+        if (m_portColResults)  lv->addWidget(m_portColResults);
+        lv->addStretch();
+        row->addWidget(left);
+        row->addWidget(mkVDiv());
+        if (m_portDiagram) row->addWidget(m_portDiagram, 1);
+        row->addWidget(mkVDiv());
+        if (m_frontPortSection) { m_frontPortSection->setVisible(true); row->addWidget(m_frontPortSection); }
+    } else {
+        // Standard (vented/BP4/sealed): [controls] | [dims/diagram/brace] | [results]
+        auto *cols = new QHBoxLayout(m_portArrangeHost);
+        cols->setContentsMargins(0,0,0,0); cols->setSpacing(0);
+        if (m_portColControls) cols->addWidget(m_portColControls);
+        cols->addWidget(mkVDiv()); cols->addSpacing(6);
+        auto *mid = new QWidget; auto *mv = new QVBoxLayout(mid);
+        mv->setContentsMargins(0,0,0,0); mv->setSpacing(0);
+        if (m_portDimsBlock)  mv->addWidget(m_portDimsBlock);
+        if (m_portDiagram)    mv->addWidget(m_portDiagram);
+        if (m_portBraceBlock) mv->addWidget(m_portBraceBlock);
+        mv->addStretch();
+        cols->addWidget(mid);
+        cols->addSpacing(6); cols->addWidget(mkVDiv()); cols->addSpacing(6);
+        if (m_portColResults) cols->addWidget(m_portColResults);
+        cols->addStretch();
+        if (m_frontPortSection) m_frontPortSection->setVisible(false);
+    }
 }
 
 void EnclosureWidget::onPortShapeChanged(int index)
@@ -4328,7 +4390,7 @@ void EnclosureWidget::loadModelIntoFields(int index)
             if (bp4)      m_portSectionHdr->setText("FRONT PORT");
             else if (bp6) m_portSectionHdr->setText("REAR PORT");
         }
-        if (m_frontPortSection) m_frontPortSection->setVisible(bp6);
+        rebuildPortArrangement(bp6);
     }
     if (m_inFb) { m_inFb->blockSignals(true); m_inFb->setValue(isBP4(model) ? model.fbFront : model.fb); m_inFb->blockSignals(false); }
     if (m_inQL) { m_inQL->blockSignals(true); m_inQL->setValue(isBP4(model) ? model.QLFront : model.QL); m_inQL->blockSignals(false); }
