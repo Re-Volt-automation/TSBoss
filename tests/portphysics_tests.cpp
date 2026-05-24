@@ -141,5 +141,14 @@ int main() {
         check(portFaceLabelFront(frr) == "90 × 40 mm", "front rect face label");
     }
 
+    // portFrontArea_m2: front-port area from the portFront* fields.
+    {
+        BoxModel fr;  fr.portFrontShape = 0; fr.portFrontWidth_mm = 100.0;   // round Ø100mm
+        const double aRound = pp::PI * 0.05 * 0.05;                          // π r², r=0.05 m
+        check(std::abs(pp::portFrontArea_m2(fr) - aRound) <= 1e-12, "front round area = πr²");
+        BoxModel frr; frr.portFrontShape = 1; frr.portFrontWidth_mm = 80.0; frr.portFrontHeight_mm = 50.0;
+        check(std::abs(pp::portFrontArea_m2(frr) - (0.08 * 0.05)) <= 1e-12, "front rect area = w·h");
+    }
+
     return g_failures == 0 ? 0 : 1;
 }

@@ -27,6 +27,16 @@ inline double portArea_m2(const BoxModel &m)
     return (m.portWidth_mm / 1000.0) * (m.portHeight_mm / 1000.0);
 }
 
+// Per-port cross-sectional area of the FRONT chamber port [m²] (bandpass).
+inline double portFrontArea_m2(const BoxModel &m)
+{
+    if (m.portFrontShape == 0) {
+        const double Dp = m.portFrontWidth_mm / 1000.0;
+        return PI * (Dp / 2.0) * (Dp / 2.0);
+    }
+    return (m.portFrontWidth_mm / 1000.0) * (m.portFrontHeight_mm / 1000.0);
+}
+
 // True when the model has the full set of driver + box data needed
 // for ported simulation.
 inline bool hasPortedData(const BoxModel &m)
