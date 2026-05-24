@@ -32,3 +32,8 @@ inline QString portFaceLabelFront(const BoxModel &m)
 
 // Draw a schematic side cross-section of the port into the painter's area.
 void drawPortSection(DiagramPainter &d, const BoxModel &m);
+
+// Draw a schematic bandpass chamber cross-section: driver on the central
+// divider, rear chamber (left) + front chamber (right). BP6 = both ports;
+// BP4 = sealed rear (hatch wash) + front port only.
+void drawBandpassSection(DiagramPainter &d, const BoxModel &m);

@@ -50,3 +50,54 @@ void drawPortSection(DiagramPainter &d, const BoxModel &m)
     if (m.numPorts > 1) cap += QString(" · ×%1").arg(m.numPorts);
     d.label(QPointF(a.center().x(), a.top() + 12), cap, DiagramPainter::Align::Center);
 }
+
+void drawBandpassSection(DiagramPainter &d, const BoxModel &m)
+{
+    const QRectF a = d.area();
+    // Landscape enclosure box: 18px each side for port stubs, 30px below for labels.
+    const QRectF box(a.left() + 18, a.top() + 6, a.width() - 36, a.height() - 30);
+    const double midX = box.center().x();
+    const double cy   = box.center().y();
+    const bool rearSealed = bandpassRearSealed(m);
+
+    // Sealed rear (BP4): faint hatch wash over the rear (left) chamber.
+    if (rearSealed)
+        d.hatchedRect(QRectF(box.left(), box.top(), midX - box.left(), box.height()));
+
+    // Enclosure box + central divider.
+    QPainterPath shell;
+    shell.addRect(box);
+    shell.moveTo(midX, box.top());
+    shell.lineTo(midX, box.bottom());
+    d.wall(shell);
+
+    // Driver on the divider (cone throat toward the front/right chamber).
+    QPainterPath drv;
+    drv.moveTo(midX - 12, cy - 18);
+    drv.lineTo(midX,      cy - 11);
+    drv.lineTo(midX,      cy + 11);
+    drv.lineTo(midX - 12, cy + 18);
+    d.wall(drv);
+
+    // Rear port (left wall) — only when the rear is vented (BP6).
+    if (!rearSealed) {
+        QPainterPath rp;
+        rp.addRect(QRectF(box.left() - 12, cy - 7, 12, 14));
+        d.wall(rp);
+        d.airflow(QPointF(box.left() + 28, cy), QPointF(box.left() - 14, cy));
+    }
+
+    // Front port (right wall) — present for BP4 and BP6.
+    QPainterPath fp;
+    fp.addRect(QRectF(box.right(), cy - 7, 12, 14));
+    d.wall(fp);
+    d.airflow(QPointF(box.right() - 28, cy), QPointF(box.right() + 14, cy));
+
+    // Chamber labels.
+    const QString rearFace = rearSealed ? QStringLiteral("SEALED") : portFaceLabel(m);
+    const QString rearTxt  = QString("REAR %1 L · %2").arg(int(m.volumeL + 0.5)).arg(rearFace);
+    const QString frontTxt = QString("FRONT %1 L · %2")
+                                 .arg(int(m.volumeFront_L + 0.5)).arg(portFaceLabelFront(m));
+    d.label(QPointF((box.left() + midX) / 2.0,  a.bottom() - 2), rearTxt,  DiagramPainter::Align::Center);
+    d.label(QPointF((midX + box.right()) / 2.0, a.bottom() - 2), frontTxt, DiagramPainter::Align::Center);
+}
