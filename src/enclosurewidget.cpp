@@ -1563,9 +1563,14 @@ static double pvVelocity(const BoxModel &m, double f, double power, PVKind k)
 }
 
 static int pvFlare(const BoxModel &m, PVKind k)
-{ return k == PVKind::BPRear ? m.portFlare
-       : k == PVKind::BPFront ? m.portFrontFlare
-       : m.portFlare; }
+{
+    switch (k) {
+        case PVKind::BPFront: return m.portFrontFlare;
+        case PVKind::BPRear:  return m.portFlare;
+        case PVKind::Vented:  return m.portFlare;
+    }
+    return m.portFlare;
+}
 
 struct PVCurve { int modelIdx; PVKind kind; QString suffix; Qt::PenStyle style; };
 
@@ -1577,6 +1582,8 @@ static QVector<PVCurve> pvCurvesFor(const BoxModel &m, int idx)
         if (pvHasData(m, PVKind::Vented)) out.push_back({idx, PVKind::Vented, "", Qt::SolidLine});
     } else if (m.encType == BoxModel::EncType::Bandpass4
             || m.encType == BoxModel::EncType::Bandpass6) {
+        // BP4 has only a front port (rear chamber sealed): hasBandpassPortVelocityData(m,false)
+        // returns false for BP4, so BP4 naturally yields a single front curve; BP6 yields both.
         if (pvHasData(m, PVKind::BPFront)) out.push_back({idx, PVKind::BPFront, " (front)", Qt::SolidLine});
         if (pvHasData(m, PVKind::BPRear))  out.push_back({idx, PVKind::BPRear,  " (rear)",  Qt::DashLine});
     }
@@ -1659,7 +1666,8 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
     if (m_activeIdx >= 0 && m_activeIdx < m_models.size()) {
         const BoxModel &am = m_models[m_activeIdx];
         QVector<double> limits;
-        for (const auto &cv : pvCurvesFor(am, m_activeIdx)) {
+        for (const auto &cv : curves) {
+            if (cv.modelIdx != m_activeIdx) continue;
             const double lim = chuffLimit(pvFlare(am, cv.kind));
             if (!limits.contains(lim)) limits.push_back(lim);
         }
