@@ -4017,6 +4017,9 @@ void EnclosureWidget::updatePortLength()
             if (m_portFrontAreaLbl)    m_portFrontAreaLbl   ->setText("–");
             if (m_portFrontSurfAreaLbl) m_portFrontSurfAreaLbl->setText("–");
             if (m_portFrontVolDisplLbl) m_portFrontVolDisplLbl->setText("–");
+            if (m_portFrontVolInnerLbl) m_portFrontVolInnerLbl->setText("–");
+            if (m_portFrontLenEachLbl)  m_portFrontLenEachLbl ->setText("–");
+            if (m_portFrontF2HLbl)      m_portFrontF2HLbl     ->setText("–");
         };
         if (m.volumeFront_L <= 0 || m.fbFront <= 0) { clearFront(); return; }
 
@@ -4055,6 +4058,28 @@ void EnclosureWidget::updatePortLength()
             endCorrF = kEC[std::clamp(m.portFrontWalls, 0, 3)] * Def;
         }
         const double LpF = Lp_effF - endCorrF;
+
+        // Front port air volume (bore × length, all front ports).
+        if (m_portFrontVolInnerLbl) {
+            if (LpF > 0)
+                m_portFrontVolInnerLbl->setText(QString("%1 L").arg(Nf * Apf * LpF * 1000.0, 0, 'f', 3));
+            else
+                m_portFrontVolInnerLbl->setText("–");
+        }
+        // Front per-port length.
+        if (m_portFrontLenEachLbl) {
+            if (LpF > 0 && Nf > 1)
+                m_portFrontLenEachLbl->setText(QString("%1 mm each").arg(LpF * 1000.0, 0, 'f', 0));
+            else
+                m_portFrontLenEachLbl->setText("–");
+        }
+        // Front 2nd pipe harmonic: f2H = c / Lp_eff.
+        if (m_portFrontF2HLbl) {
+            if (Lp_effF > 0)
+                m_portFrontF2HLbl->setText(QString("%1 Hz").arg(g_C / Lp_effF, 0, 'f', 1));
+            else
+                m_portFrontF2HLbl->setText("–");
+        }
 
         // Clamp insert spinbox max to computed length
         if (m_inPortFrontInsert) {
@@ -4120,6 +4145,9 @@ void EnclosureWidget::updatePortLength()
         if (m_portFrontAreaLbl)    m_portFrontAreaLbl   ->setText("–");
         if (m_portFrontSurfAreaLbl) m_portFrontSurfAreaLbl->setText("–");
         if (m_portFrontVolDisplLbl) m_portFrontVolDisplLbl->setText("–");
+        if (m_portFrontVolInnerLbl) m_portFrontVolInnerLbl->setText("–");
+        if (m_portFrontLenEachLbl)  m_portFrontLenEachLbl ->setText("–");
+        if (m_portFrontF2HLbl)      m_portFrontF2HLbl     ->setText("–");
     }
 }
 
@@ -4528,6 +4556,9 @@ void EnclosureWidget::clearFields()
     if (m_portDiagram)     m_portDiagram->setDraw(nullptr);
     if (m_portFrontLenLbl)  m_portFrontLenLbl ->setText("–");
     if (m_portFrontAreaLbl) m_portFrontAreaLbl->setText("–");
+    if (m_portFrontVolInnerLbl) m_portFrontVolInnerLbl->setText("–");
+    if (m_portFrontLenEachLbl)  m_portFrontLenEachLbl ->setText("–");
+    if (m_portFrontF2HLbl)      m_portFrontF2HLbl     ->setText("–");
     if (m_volLabel) m_volLabel->setText("BOX VOL");
     if (m_portSectionHdr)   m_portSectionHdr->setVisible(false);
     if (m_frontPortSection) m_frontPortSection->setVisible(false);
