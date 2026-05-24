@@ -127,5 +127,19 @@ int main() {
         check(portFaceLabel(rect) == "80 × 50 mm", "rect face label");
     }
 
+    // Bandpass diagram helpers.
+    {
+        BoxModel bp4; bp4.encType = BoxModel::EncType::Bandpass4;
+        BoxModel bp6; bp6.encType = BoxModel::EncType::Bandpass6;
+        BoxModel v;   v.encType   = BoxModel::EncType::Vented;
+        check(bandpassRearSealed(bp4),  "BP4 rear is sealed");
+        check(!bandpassRearSealed(bp6), "BP6 rear is vented");
+        check(!bandpassRearSealed(v),   "vented is not bandpass-sealed");
+        BoxModel fr;  fr.portFrontShape = 0;  fr.portFrontWidth_mm = 100.0;
+        check(portFaceLabelFront(fr) == "Ø 100 mm", "front round face label");
+        BoxModel frr; frr.portFrontShape = 1; frr.portFrontWidth_mm = 90.0; frr.portFrontHeight_mm = 40.0;
+        check(portFaceLabelFront(frr) == "90 × 40 mm", "front rect face label");
+    }
+
     return g_failures == 0 ? 0 : 1;
 }

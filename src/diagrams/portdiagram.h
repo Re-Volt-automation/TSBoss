@@ -17,5 +17,18 @@ inline QString portFaceLabel(const BoxModel &m)
                                 .arg(int(m.portHeight_mm + 0.5));
 }
 
+// Bandpass rear chamber: sealed (BP4) vs vented/ported (BP6).
+inline bool bandpassRearSealed(const BoxModel &m)
+{ return m.encType == BoxModel::EncType::Bandpass4; }
+
+// Front-port face label (mirror of portFaceLabel, reads the portFront* fields).
+inline QString portFaceLabelFront(const BoxModel &m)
+{
+    if (m.portFrontShape == 0)
+        return QString("Ø %1 mm").arg(int(m.portFrontWidth_mm + 0.5));
+    return QString("%1 × %2 mm").arg(int(m.portFrontWidth_mm + 0.5))
+                                .arg(int(m.portFrontHeight_mm + 0.5));
+}
+
 // Draw a schematic side cross-section of the port into the painter's area.
 void drawPortSection(DiagramPainter &d, const BoxModel &m);
