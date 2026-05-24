@@ -36,6 +36,8 @@ set(PROJECT_SOURCES
     src/diagrams/diagrampainter.cpp
     src/diagrams/diagramview.h
     src/diagrams/diagramview.cpp
+    src/diagrams/portdiagram.h
+    src/diagrams/portdiagram.cpp
     src/pdfreport.h
     src/pdfreport.cpp
     src/theme.h

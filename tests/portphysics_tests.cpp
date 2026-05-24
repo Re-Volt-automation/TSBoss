@@ -1,4 +1,5 @@
 #include "portphysics.h"
+#include "diagrams/portdiagram.h"
 #include <cstdio>
 #include <cmath>
 #include <vector>
@@ -112,6 +113,18 @@ int main() {
         check(chuffLimit(1) == 22.0, "chuffLimit(one-end flared) == 22 m/s");
         check(chuffLimit(2) == 28.0, "chuffLimit(both-ends flared) == 28 m/s");
         check(chuffLimit(2) > chuffLimit(0), "flared chuffing limit exceeds sharp");
+    }
+
+    // Port-diagram pure helpers.
+    {
+        check(!portFlareOuter(0) && portFlareOuter(1) && portFlareOuter(2),
+              "portFlareOuter: flares for one-end and both-ends");
+        check(!portFlareInner(0) && !portFlareInner(1) && portFlareInner(2),
+              "portFlareInner: inner flares only for both-ends");
+        BoxModel rnd; rnd.portShape = 0; rnd.portWidth_mm = 75.0;
+        check(portFaceLabel(rnd) == "Ø 75 mm", "round face label");
+        BoxModel rect; rect.portShape = 1; rect.portWidth_mm = 80.0; rect.portHeight_mm = 50.0;
+        check(portFaceLabel(rect) == "80 × 50 mm", "rect face label");
     }
 
     return g_failures == 0 ? 0 : 1;
