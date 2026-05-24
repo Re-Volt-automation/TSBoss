@@ -1,4 +1,5 @@
 #include "portphysics.h"
+#include "bandpassphysics.h"
 #include "diagrams/portdiagram.h"
 #include <cstdio>
 #include <cmath>

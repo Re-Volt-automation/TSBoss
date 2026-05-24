@@ -30,6 +30,7 @@ set(PROJECT_SOURCES
     src/datasheetentrywidget.cpp
     src/boxmodel.h
     src/portphysics.h
+    src/bandpassphysics.h
     src/enclosurewidget.h
     src/enclosurewidget.cpp
     src/diagrams/diagrampainter.h
