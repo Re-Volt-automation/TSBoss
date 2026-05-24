@@ -1538,6 +1538,51 @@ void PortVelocityPlot::setModels(const QList<BoxModel> &models, int activeIndex)
 void PortVelocityPlot::setPower(double watts) { m_power = watts; update(); }
 void PortVelocityPlot::clear() { m_models.clear(); m_activeIdx = -1; update(); }
 
+// One drawable velocity curve. A vented model yields one; a BP6 yields two
+// (front + rear). Kept as a plain enum dispatch — no std::function in the draw loop.
+enum class PVKind { Vented, BPFront, BPRear };
+
+static bool pvHasData(const BoxModel &m, PVKind k)
+{
+    switch (k) {
+        case PVKind::Vented:  return hasPortVelocityData(m);
+        case PVKind::BPFront: return hasBandpassPortVelocityData(m, true);
+        case PVKind::BPRear:  return hasBandpassPortVelocityData(m, false);
+    }
+    return false;
+}
+
+static double pvVelocity(const BoxModel &m, double f, double power, PVKind k)
+{
+    switch (k) {
+        case PVKind::Vented:  return portAirVelocity(m, f, power);
+        case PVKind::BPFront: return bandpassPortVelocity(m, f, power, true);
+        case PVKind::BPRear:  return bandpassPortVelocity(m, f, power, false);
+    }
+    return 0.0;
+}
+
+static int pvFlare(const BoxModel &m, PVKind k)
+{ return k == PVKind::BPRear ? m.portFlare
+       : k == PVKind::BPFront ? m.portFrontFlare
+       : m.portFlare; }
+
+struct PVCurve { int modelIdx; PVKind kind; QString suffix; Qt::PenStyle style; };
+
+// Build the list of velocity curves a model contributes (0, 1, or 2).
+static QVector<PVCurve> pvCurvesFor(const BoxModel &m, int idx)
+{
+    QVector<PVCurve> out;
+    if (m.encType == BoxModel::EncType::Vented) {
+        if (pvHasData(m, PVKind::Vented)) out.push_back({idx, PVKind::Vented, "", Qt::SolidLine});
+    } else if (m.encType == BoxModel::EncType::Bandpass4
+            || m.encType == BoxModel::EncType::Bandpass6) {
+        if (pvHasData(m, PVKind::BPFront)) out.push_back({idx, PVKind::BPFront, " (front)", Qt::SolidLine});
+        if (pvHasData(m, PVKind::BPRear))  out.push_back({idx, PVKind::BPRear,  " (rear)",  Qt::DashLine});
+    }
+    return out;
+}
+
 void PortVelocityPlot::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
@@ -1551,16 +1596,19 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
     const double lfMin = std::log10(F_MIN);
     const double lfMax = std::log10(F_MAX);
 
-    // Y range: scan all vented models
+    // Y range: scan all curves
+    QVector<PVCurve> curves;
+    for (int i = 0; i < m_models.size(); ++i)
+        curves += pvCurvesFor(m_models[i], i);
+
     double yMax = 1.0;
-    bool anyValid = false;
-    for (const auto &m : m_models) {
-        if (!hasPortVelocityData(m)) continue;
-        anyValid = true;
+    bool anyValid = !curves.isEmpty();
+    for (const auto &cv : curves) {
+        const BoxModel &m = m_models[cv.modelIdx];
         const double mp = modelPower(m);
         for (int i = 0; i <= 80; ++i) {
             const double f = std::pow(10.0, lfMin + (lfMax-lfMin)*i/80.0);
-            const double v = portAirVelocity(m, f, mp);
+            const double v = pvVelocity(m, f, mp, cv.kind);
             if (std::isfinite(v)) yMax = std::max(yMax, v);
         }
     }
@@ -1606,25 +1654,25 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
                    Qt::AlignRight|Qt::AlignVCenter, lbl);
     }
 
-    // Reference line at the flare-dependent chuffing-onset velocity. Tracks the
-    // active model's port flare (flared ports tolerate higher velocity); falls
-    // back to the first valid model, then the sharp-port 17 m/s default.
-    double chuffMs = 17.0;
-    if (m_activeIdx >= 0 && m_activeIdx < m_models.size()
-        && hasPortVelocityData(m_models[m_activeIdx])) {
-        chuffMs = chuffLimit(m_models[m_activeIdx].portFlare);
-    } else {
-        for (const auto &mm : m_models)
-            if (hasPortVelocityData(mm)) { chuffMs = chuffLimit(mm.portFlare); break; }
-    }
-    if (chuffMs >= yMin && chuffMs <= yMax) {
-        p.setPen(QPen(Theme::instance().statusError(), 1.0, Qt::DashLine));
-        p.drawLine(QPointF(area.left(), yPx(chuffMs)), QPointF(area.right(), yPx(chuffMs)));
-        QFont rf; rf.setPointSize(7); p.setFont(rf);
-        p.setPen(Theme::instance().statusError());
-        p.drawText(QRectF(area.left()+4, yPx(chuffMs)-13, 90, 12),
-                   Qt::AlignLeft|Qt::AlignVCenter,
-                   QString("%1 m/s limit").arg(int(std::round(chuffMs))));
+    // Per-port chuffing limit line(s) for the active model. A BP6 with different
+    // front/rear flares shows two; equal flares (and vented/BP4) collapse to one.
+    if (m_activeIdx >= 0 && m_activeIdx < m_models.size()) {
+        const BoxModel &am = m_models[m_activeIdx];
+        QVector<double> limits;
+        for (const auto &cv : pvCurvesFor(am, m_activeIdx)) {
+            const double lim = chuffLimit(pvFlare(am, cv.kind));
+            if (!limits.contains(lim)) limits.push_back(lim);
+        }
+        for (double lim : limits) {
+            if (lim < yMin || lim > yMax) continue;
+            p.setPen(QPen(Theme::instance().statusError(), 1.0, Qt::DashLine));
+            p.drawLine(QPointF(area.left(), yPx(lim)), QPointF(area.right(), yPx(lim)));
+            QFont rf; rf.setPointSize(7); p.setFont(rf);
+            p.setPen(Theme::instance().statusError());
+            p.drawText(QRectF(area.left()+4, yPx(lim)-13, 90, 12),
+                       Qt::AlignLeft|Qt::AlignVCenter,
+                       QString("%1 m/s limit").arg(int(std::round(lim))));
+        }
     }
 
     // Axis titles
@@ -1646,49 +1694,48 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
     if (!anyValid) {
         p.setPen(CLR_GREY_LT());
         QFont f; f.setPointSize(12); f.setItalic(true); p.setFont(f);
-        p.drawText(area, Qt::AlignCenter, "Select a vented enclosure to see port velocity.");
+        p.drawText(area, Qt::AlignCenter, "Select a ported or bandpass enclosure to see port velocity.");
         return;
     }
 
     // Curves
-    auto drawCurve = [&](const BoxModel &m, bool active) {
-        if (!hasPortVelocityData(m)) return;
+    auto drawPV = [&](const PVCurve &cv, bool active) {
+        const BoxModel &m = m_models[cv.modelIdx];
         const double mp = modelPower(m);
         QPainterPath curve; bool first = true;
         for (int i = 0; i <= 500; ++i) {
             const double f = std::pow(10.0, lfMin + (lfMax-lfMin)*i/500.0);
-            const double v = portAirVelocity(m, f, mp);
+            const double v = pvVelocity(m, f, mp, cv.kind);
             if (!std::isfinite(v)) continue;
             const QPointF pt(xPx(f), yPx(v));
             if (first) { curve.moveTo(pt); first = false; } else curve.lineTo(pt);
         }
         QColor c = m.color; if (!active) c.setAlpha(100);
-        p.setPen(QPen(c, active ? 3.0 : 1.8));
+        p.setPen(QPen(c, active ? 3.0 : 1.8, cv.style));
         p.setBrush(Qt::NoBrush);
         p.drawPath(curve);
     };
 
     p.setClipRect(area);
-    for (int i = 0; i < m_models.size(); ++i)
-        if (i != m_activeIdx) drawCurve(m_models[i], false);
-    if (m_activeIdx >= 0 && m_activeIdx < m_models.size())
-        drawCurve(m_models[m_activeIdx], true);
+    for (const auto &cv : curves)
+        if (cv.modelIdx != m_activeIdx) drawPV(cv, false);
+    for (const auto &cv : curves)
+        if (cv.modelIdx == m_activeIdx) drawPV(cv, true);
     p.setClipping(false);
 
     // Legend
     {
         QFont lf; lf.setPointSize(8); p.setFont(lf);
         const int lx = int(area.right())-180; int ly = int(area.top())+8;
-        for (int i = 0; i < m_models.size(); ++i) {
-            const auto &m = m_models[i];
-            if (!hasPortVelocityData(m)) continue;
-            bool active = (i == m_activeIdx);
+        for (const auto &cv : curves) {
+            const BoxModel &m = m_models[cv.modelIdx];
+            bool active = (cv.modelIdx == m_activeIdx);
             QColor c = m.color; if (!active) c.setAlpha(140);
-            p.setPen(QPen(c, active ? 2.5 : 1.5));
+            p.setPen(QPen(c, active ? 2.5 : 1.5, cv.style));
             p.drawLine(QPoint(lx, ly+6), QPoint(lx+20, ly+6));
             p.setPen(active ? CLR_GREY_DK() : CLR_GREY());
             QFont tf; tf.setPointSize(8); tf.setBold(active); p.setFont(tf);
-            p.drawText(QRect(lx+24, ly, 150, 14), Qt::AlignLeft|Qt::AlignVCenter, m.name);
+            p.drawText(QRect(lx+24, ly, 150, 14), Qt::AlignLeft|Qt::AlignVCenter, m.name + cv.suffix);
             ly += 16;
         }
     }
@@ -1696,12 +1743,11 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
     // Cursor overlay
     if (m_cursorFreq > 0) {
         QVector<CursorEntry> entries;
-        for (int i = 0; i < m_models.size(); ++i) {
-            const auto &m = m_models[i];
-            if (!hasPortVelocityData(m)) continue;
-            const double v = portAirVelocity(m, m_cursorFreq, modelPower(m));
+        for (const auto &cv : curves) {
+            const BoxModel &m = m_models[cv.modelIdx];
+            const double v = pvVelocity(m, m_cursorFreq, modelPower(m), cv.kind);
             if (!std::isfinite(v)) continue;
-            entries.append({m.color, i == m_activeIdx, m.name,
+            entries.append({m.color, cv.modelIdx == m_activeIdx, m.name + cv.suffix,
                             yPx(v), QString("%1 m/s").arg(v, 0, 'f', 2)});
         }
         drawCursorOverlay(p, area, xPx(m_cursorFreq), m_cursorFreq, entries);
