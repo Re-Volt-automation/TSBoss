@@ -124,6 +124,8 @@ static BoxModel withEffectiveMass(BoxModel m)
 
 // Bandpass passband boundaries: find the SPL peak, then -3 dB points
 // below and above.  Returns {f3Low, f3High, peakDb, ripple}.
+// SPL is evaluated at power=0 (the linear small-signal limit) so f3/ripple
+// describe the box tuning and stay independent of the applied-power slider.
 struct BPMetrics { double f3Low, f3High, peakDb, ripple; };
 static BPMetrics bandpassMetrics(const BoxModel &m)
 {
