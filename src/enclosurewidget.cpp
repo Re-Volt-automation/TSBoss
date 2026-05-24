@@ -3237,7 +3237,7 @@ void EnclosureWidget::buildUi()
     m_paramTabs->addTab(chambersPanel,   "CHAMBERS");
     m_paramTabs->addTab(m_portTabContent, "PORT");
     m_paramTabs->setMinimumHeight(160);
-    m_paramTabs->setMaximumHeight(400);
+    m_paramTabs->setMaximumHeight(620);
 
     // Right side: vertical splitter with plot tabs + param tabs
     auto *rightSplit = new QSplitter(Qt::Vertical);
@@ -3824,7 +3824,13 @@ void EnclosureWidget::rebuildPortArrangement(bool bp6)
         lv->addStretch();
         row->addWidget(left);
         row->addWidget(mkVDiv());
-        if (m_portDiagram) row->addWidget(m_portDiagram, 1);
+        if (m_portDiagram) {
+            // Fixed, roughly-square middle column for the chamber illustration.
+            m_portDiagram->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+            m_portDiagram->setFixedWidth(240);
+            m_portDiagram->setMinimumHeight(220);
+            row->addWidget(m_portDiagram);          // no stretch — middle column stays fixed
+        }
         row->addWidget(mkVDiv());
         if (m_frontPortSection) { m_frontPortSection->setVisible(true); row->addWidget(m_frontPortSection); }
     } else {
@@ -3836,7 +3842,14 @@ void EnclosureWidget::rebuildPortArrangement(bool bp6)
         auto *mid = new QWidget; auto *mv = new QVBoxLayout(mid);
         mv->setContentsMargins(0,0,0,0); mv->setSpacing(0);
         if (m_portDimsBlock)  mv->addWidget(m_portDimsBlock);
-        if (m_portDiagram)    mv->addWidget(m_portDiagram);
+        if (m_portDiagram) {
+            // Restore the default landscape sizing for the vented port cross-section.
+            m_portDiagram->setMinimumWidth(0);
+            m_portDiagram->setMaximumWidth(QWIDGETSIZE_MAX);
+            m_portDiagram->setMinimumHeight(120);
+            m_portDiagram->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            mv->addWidget(m_portDiagram);
+        }
         if (m_portBraceBlock) mv->addWidget(m_portBraceBlock);
         mv->addStretch();
         cols->addWidget(mid);
