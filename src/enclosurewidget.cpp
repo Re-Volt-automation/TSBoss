@@ -3098,10 +3098,13 @@ void EnclosureWidget::buildUi()
                     g->addWidget(mkFormLabel(lbl), r,   0, Qt::AlignRight);
                     g->addWidget(out,              r++, 1, Qt::AlignLeft);
                 };
-                addR2("Port area (each):", m_portFrontAreaLbl);
+                addR2("Port area (each):",   m_portFrontAreaLbl);
                 addR2("Inner surface area:", m_portFrontSurfAreaLbl);
+                addR2("Port vol. (air):",    m_portFrontVolInnerLbl);
                 addR2("Vol. in box:",        m_portFrontVolDisplLbl);
                 addR2("Port length:",        m_portFrontLenLbl);
+                addR2("(per port):",         m_portFrontLenEachLbl);
+                addR2("2nd harmonic:",       m_portFrontF2HLbl);
                 if (m_portFrontLenLbl)
                     m_portFrontLenLbl->setStyleSheet(themed(
                         "color:%accentLt%; font-family:'IBM Plex Mono',monospace;"

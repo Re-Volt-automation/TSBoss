@@ -336,8 +336,11 @@ private:
     QDoubleSpinBox    *m_inPortFrontBraceSurf   = nullptr;
     QLabel            *m_portFrontAreaLbl     = nullptr;
     QLabel            *m_portFrontSurfAreaLbl = nullptr;
+    QLabel            *m_portFrontVolInnerLbl = nullptr;  ///< front port air volume
     QLabel            *m_portFrontVolDisplLbl = nullptr;
     QLabel            *m_portFrontLenLbl      = nullptr;
+    QLabel            *m_portFrontLenEachLbl  = nullptr;  ///< front per-port length
+    QLabel            *m_portFrontF2HLbl      = nullptr;  ///< front 2nd pipe harmonic
     QLabel            *m_portAreaLbl    = nullptr;
     QLabel            *m_portSurfAreaLbl= nullptr;  ///< inner lateral surface area
     QLabel            *m_portVolInnerLbl= nullptr;  ///< air volume inside port bore (all ports)
