@@ -94,10 +94,17 @@ void drawBandpassSection(DiagramPainter &d, const BoxModel &m)
     d.airflow(QPointF(box.right() - 28, cy), QPointF(box.right() + 14, cy));
 
     // Chamber labels.
-    const QString rearFace = rearSealed ? QStringLiteral("SEALED") : portFaceLabel(m);
+    QString rearFace;
+    if (rearSealed) {
+        rearFace = QStringLiteral("SEALED");
+    } else {
+        rearFace = portFaceLabel(m);
+        if (m.numPorts > 1) rearFace += QString(" ×%1").arg(m.numPorts);
+    }
+    QString frontFace = portFaceLabelFront(m);
+    if (m.numPortsFront > 1) frontFace += QString(" ×%1").arg(m.numPortsFront);
     const QString rearTxt  = QString("REAR %1 L · %2").arg(int(m.volumeL + 0.5)).arg(rearFace);
-    const QString frontTxt = QString("FRONT %1 L · %2")
-                                 .arg(int(m.volumeFront_L + 0.5)).arg(portFaceLabelFront(m));
+    const QString frontTxt = QString("FRONT %1 L · %2").arg(int(m.volumeFront_L + 0.5)).arg(frontFace);
     d.label(QPointF((box.left() + midX) / 2.0,  a.bottom() - 2), rearTxt,  DiagramPainter::Align::Center);
     d.label(QPointF((midX + box.right()) / 2.0, a.bottom() - 2), frontTxt, DiagramPainter::Align::Center);
 }
