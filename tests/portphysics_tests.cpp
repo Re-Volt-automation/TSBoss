@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cmath>
 #include <vector>
+#include <string>
 
 static int g_failures = 0;
 static void check(bool cond, const char *msg) {
@@ -25,6 +26,23 @@ static BoxModel makeModel() {
 }
 
 static const std::vector<double> kFreqs = {20, 25, 32, 40, 60, 100, 1000};
+
+static BoxModel makeBP4() {
+    BoxModel m = makeModel();
+    m.encType = BoxModel::EncType::Bandpass4;
+    m.volumeL = 30.0;                                   // rear sealed
+    m.volumeFront_L = 40.0; m.fbFront = 60.0; m.QLFront = 7.0;
+    m.portFrontShape = 0; m.portFrontWidth_mm = 100.0; m.numPortsFront = 1; m.portFrontFlare = 0;
+    return m;
+}
+static BoxModel makeBP6() {
+    BoxModel m = makeBP4();
+    m.encType = BoxModel::EncType::Bandpass6;
+    m.fb = 35.0; m.QL = 7.0;                            // rear vented
+    m.portShape = 0; m.portWidth_mm = 80.0; m.numPorts = 1; m.portFlare = 0;
+    return m;
+}
+static const std::vector<double> kBPFreqs = {25, 40, 60, 80, 120};
 
 int main() {
     using namespace pp;
@@ -149,6 +167,47 @@ int main() {
         check(std::abs(pp::portFrontArea_m2(fr) - aRound) <= 1e-12, "front round area = πr²");
         BoxModel frr; frr.portFrontShape = 1; frr.portFrontWidth_mm = 80.0; frr.portFrontHeight_mm = 50.0;
         check(std::abs(pp::portFrontArea_m2(frr) - (0.08 * 0.05)) <= 1e-12, "front rect area = w·h");
+    }
+
+    // Bandpass golden: power=0 (linear limit) must equal the pre-rewrite linear model.
+    struct BPGolden { const char *kind; double f, spl, Z; };
+    const std::vector<BPGolden> bpGolden = {
+        {"BP4", 25, /*spl*/0.2581972151, /*Z*/11.45103385}, {"BP4", 40, 0.6766645385, 31.47770956}, {"BP4", 60, 1.965624925, 10.03944402}, {"BP4", 80, 0.8888582925, 13.01865426}, {"BP4", 120, 0.243480655, 7.441158685},
+        {"BP6", 25, /*spl*/0.1579857001, /*Z*/13.88499792}, {"BP6", 40, 1.06044503, 10.29991499}, {"BP6", 60, 1.948257759, 10.07235777}, {"BP6", 80, 0.7327091872, 13.82830906}, {"BP6", 120, 0.1762961827, 7.46249356},
+    };
+    for (auto &g : bpGolden) {
+        BoxModel bm = (std::string(g.kind) == "BP6") ? makeBP6() : makeBP4();
+        const double spl = pp::bandpassSplRaw(bm, g.f, 0.0);     // power=0 -> linear
+        const double Z   = pp::bandpassImpedance(bm, g.f, 0.0);
+        char ms[80], mz[80];
+        std::snprintf(ms, sizeof ms, "%s golden SPL @ %.0f Hz (power=0==linear)", g.kind, g.f);
+        std::snprintf(mz, sizeof mz, "%s golden Z   @ %.0f Hz (power=0==linear)", g.kind, g.f);
+        check(std::abs(spl - g.spl) <= 1e-6 * std::max(std::abs(g.spl), 1e-12), ms);
+        check(std::abs(Z   - g.Z)   <= 1e-6 * std::max(std::abs(g.Z),   1e-12), mz);
+    }
+
+    // Velocity-aware bandpass: power-aware fixed-point convergence + flare ranking.
+    {
+        BoxModel bp6 = makeBP6();
+        for (double f : kBPFreqs) {
+            const auto s = pp::bandpassSolve(bp6, f, 500.0);
+            check(std::isfinite(s.uFront) && s.uFront >= 0.0, "BP6 uFront finite");
+            check(std::isfinite(s.uRear)  && s.uRear  >= 0.0, "BP6 uRear finite");
+        }
+        // BP4 rear chamber is sealed -> no rear port -> uRear == 0.
+        BoxModel bp4 = makeBP4();
+        const auto s4 = pp::bandpassSolve(bp4, bp4.fbFront, 500.0);
+        check(s4.uRear == 0.0, "BP4 uRear == 0 (rear sealed)");
+        check(std::isfinite(s4.uFront) && s4.uFront > 0.0, "BP4 uFront > 0");
+        // power=0 -> velocities zero (linear limit, no drive).
+        const auto s0 = pp::bandpassSolve(bp6, bp6.fbFront, 0.0);
+        check(s0.uFront == 0.0 && s0.uRear == 0.0, "BP6 power=0 -> zero velocity");
+        // Flare ranking: at high power a flared front port loses less -> >= velocity than sharp.
+        BoxModel sharp = makeBP6();  sharp.portFrontFlare = 0;
+        BoxModel flared = makeBP6(); flared.portFrontFlare = 2;
+        const double us = pp::bandpassSolve(sharp,  sharp.fbFront,  2000.0).uFront;
+        const double uf = pp::bandpassSolve(flared, flared.fbFront, 2000.0).uFront;
+        check(uf >= us - 1e-9, "flared front port velocity >= sharp at high power");
     }
 
     return g_failures == 0 ? 0 : 1;
