@@ -2856,7 +2856,7 @@ void EnclosureWidget::buildUi()
         m_frontPortSection->setVisible(false);
         {
             auto *fpvb = new QVBoxLayout(m_frontPortSection);
-            fpvb->setContentsMargins(0, 6, 0, 0);
+            fpvb->setContentsMargins(0, 0, 0, 0);
             fpvb->setSpacing(4);
 
             auto *divLbl = new QLabel("FRONT PORT");
@@ -3185,8 +3185,11 @@ void EnclosureWidget::buildUi()
         sa->setFrameShape(QFrame::NoFrame);
         sa->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         sa->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-        sa->setStyleSheet("QScrollArea{background:transparent;border:none;}");
-        sa->viewport()->setStyleSheet("background:transparent;");
+        // Use palette, not a stylesheet: a selector-less stylesheet on the
+        // viewport cascades to every descendant and would override the themed
+        // spinbox/combo backgrounds.
+        sa->setAutoFillBackground(false);
+        sa->viewport()->setAutoFillBackground(false);
         return sa;
     };
     m_paramTabs->addTab(wrapScroll(paramPanel),       "DRIVER");
@@ -3623,9 +3626,10 @@ void EnclosureWidget::onEncTypeChanged(int index)
 
     // Port tab section header and front port section
     if (m_portSectionHdr) {
-        m_portSectionHdr->setVisible(bandpass);
-        if (bp4)      m_portSectionHdr->setText("FRONT PORT");
-        else if (bp6) m_portSectionHdr->setText("REAR PORT");
+        // BP6 uses inline per-column headers (built in rebuildPortArrangement),
+        // so the outer spanning header is only for the single-column BP4 layout.
+        m_portSectionHdr->setVisible(bp4);
+        if (bp4) m_portSectionHdr->setText("FRONT PORT");
     }
     rebuildPortArrangement(bp6);
     if (m_btnBessel) m_btnBessel->setVisible(sealed);
@@ -3772,22 +3776,30 @@ void EnclosureWidget::rebuildPortArrangement(bool bp6)
         row->setContentsMargins(0,0,0,0); row->setSpacing(6);
         auto *left = new QWidget; auto *lv = new QVBoxLayout(left);
         lv->setContentsMargins(0,0,0,0); lv->setSpacing(6);
+        // Inline "REAR PORT" header mirrors the front section's "FRONT PORT"
+        // header so the two columns start at the same level (the outer
+        // m_portSectionHdr is suppressed for BP6).
+        auto *rearHdr = new QLabel("REAR PORT");
+        rearHdr->setStyleSheet(themed(
+            "font-family:'IBM Plex Sans',sans-serif; font-weight:700;"
+            "font-size:8pt; color:#94A3B8; letter-spacing:2px; padding:4px 0 2px 0;"));
+        lv->addWidget(rearHdr);
         if (m_portColControls) lv->addWidget(m_portColControls);
         if (m_portDimsBlock)   lv->addWidget(m_portDimsBlock);
         if (m_portBraceBlock)  lv->addWidget(m_portBraceBlock);
         if (m_portColResults)  lv->addWidget(m_portColResults);
         lv->addStretch();
-        row->addWidget(left);
+        row->addWidget(left, 0, Qt::AlignTop);
         row->addWidget(mkVDiv());
         if (m_portDiagram) {
             // Fixed, roughly-square middle column for the chamber illustration.
             m_portDiagram->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
             m_portDiagram->setFixedWidth(240);
             m_portDiagram->setMinimumHeight(220);
-            row->addWidget(m_portDiagram);          // no stretch — middle column stays fixed
+            row->addWidget(m_portDiagram, 0, Qt::AlignTop); // no stretch — middle column stays fixed
         }
         row->addWidget(mkVDiv());
-        if (m_frontPortSection) { m_frontPortSection->setVisible(true); row->addWidget(m_frontPortSection); }
+        if (m_frontPortSection) { m_frontPortSection->setVisible(true); row->addWidget(m_frontPortSection, 0, Qt::AlignTop); }
     } else {
         // Standard (vented/BP4/sealed): [controls] | [dims/diagram/brace] | [results]
         auto *cols = new QHBoxLayout(m_portArrangeHost);
@@ -4343,9 +4355,8 @@ void EnclosureWidget::loadModelIntoFields(int index)
         if (m_chambersQL)      m_chambersQL     ->setVisible(vented);
         // Port tab section header and front port section
         if (m_portSectionHdr) {
-            m_portSectionHdr->setVisible(bp);
-            if (bp4)      m_portSectionHdr->setText("FRONT PORT");
-            else if (bp6) m_portSectionHdr->setText("REAR PORT");
+            m_portSectionHdr->setVisible(bp4);   // BP6 uses inline per-column headers
+            if (bp4) m_portSectionHdr->setText("FRONT PORT");
         }
         rebuildPortArrangement(bp6);
     }
