@@ -3838,10 +3838,13 @@ void EnclosureWidget::updatePortLength()
     if (m_activeIdx < 0 || m_activeIdx >= m_models.size()) { clearOut(); return; }
     const auto &m = m_models[m_activeIdx];
 
-    // ── Port cross-section diagram ───────────────────────────────
+    // ── Port / chamber diagram ───────────────────────────────────
     if (m_portDiagram) {
         BoxModel diag = m;   // copy for the draw callback
-        m_portDiagram->setDraw([diag](DiagramPainter &d){ drawPortSection(d, diag); });
+        if (isBandpass(diag))
+            m_portDiagram->setDraw([diag](DiagramPainter &d){ drawBandpassSection(d, diag); });
+        else
+            m_portDiagram->setDraw([diag](DiagramPainter &d){ drawPortSection(d, diag); });
     }
 
     // For BP4, use front-chamber tuning with existing rear-port geometry controls
