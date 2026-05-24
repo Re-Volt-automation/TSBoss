@@ -2865,6 +2865,14 @@ void EnclosureWidget::buildUi()
                 m_portFrontShape->setStyleSheet(kComboSS);
                 m_portFrontShape->setSizeAdjustPolicy(QComboBox::AdjustToContents);
 
+                m_portFrontFlare = new QComboBox;
+                m_portFrontFlare->addItems({"Straight", "One end flared", "Both ends flared"});
+                m_portFrontFlare->setStyleSheet(kComboSS);
+                m_portFrontFlare->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+                m_portFrontFlare->setToolTip(
+                    "Flared ends reduce turbulence. Length is measured from the\n"
+                    "midpoint of the flare radius on each flared end.");
+
                 m_numPortsFront = new WheelWhenFocusedIntSpinBox;
                 m_numPortsFront->setRange(1, 8);
                 m_numPortsFront->setValue(1);
@@ -2875,10 +2883,12 @@ void EnclosureWidget::buildUi()
                 m_inFbFrontPort->setValue(60.0);
                 m_inQLFrontPort = mkWheelSpin(0.5, 50.0, 1, 0.1, "");
                 m_inQLFrontPort->setValue(7.0);
+                // Row order mirrors the rear port column: fb, QL, # Ports, Shape, Flare.
                 f->addRow(mkFormLabel("Front fb:"), m_inFbFrontPort);
                 f->addRow(mkFormLabel("Front QL:"), m_inQLFrontPort);
-                f->addRow(mkFormLabel("Shape:"),   mkComboRow(m_portFrontShape));
                 f->addRow(mkFormLabel("# Ports:"), m_numPortsFront);
+                f->addRow(mkFormLabel("Shape:"),   mkComboRow(m_portFrontShape));
+                f->addRow(mkFormLabel("Flare:"),   mkComboRow(m_portFrontFlare));
 
                 auto *col1fp = new QWidget;
                 col1fp->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
@@ -3135,6 +3145,9 @@ void EnclosureWidget::buildUi()
                     this, &EnclosureWidget::onParamChanged);
         if (m_numPortsFront)
             connect(m_numPortsFront, QOverload<int>::of(&QSpinBox::valueChanged),
+                    this, [this](int){ onParamChanged(); });
+        if (m_portFrontFlare)
+            connect(m_portFrontFlare, QOverload<int>::of(&QComboBox::currentIndexChanged),
                     this, [this](int){ onParamChanged(); });
     }
 
@@ -4170,6 +4183,7 @@ void EnclosureWidget::onParamChanged()
     // BP6 front port geometry
     if (isBP6(model)) {
         if (m_portFrontShape) model.portFrontShape = m_portFrontShape->currentIndex();
+        if (m_portFrontFlare) model.portFrontFlare = m_portFrontFlare->currentIndex();
         if (m_portFrontWalls) model.portFrontWalls = m_portFrontWalls->currentIndex();
         if (m_numPortsFront)  model.numPortsFront  = m_numPortsFront->value();
         if (model.portFrontShape == 0 && m_inPortFrontDiam)
@@ -4325,6 +4339,7 @@ void EnclosureWidget::loadModelIntoFields(int index)
     if (m_inPortFrontW)    { m_inPortFrontW   ->blockSignals(true); m_inPortFrontW   ->setValue(model.portFrontShape == 1 ? model.portFrontWidth_mm : m_inPortFrontW->value()); m_inPortFrontW->blockSignals(false); }
     if (m_inPortFrontH)    { m_inPortFrontH   ->blockSignals(true); m_inPortFrontH   ->setValue(model.portFrontHeight_mm); m_inPortFrontH->blockSignals(false); }
     if (m_portFrontWalls)  { m_portFrontWalls ->blockSignals(true); m_portFrontWalls ->setCurrentIndex(std::clamp(model.portFrontWalls, 0, 3)); m_portFrontWalls->blockSignals(false); }
+    if (m_portFrontFlare)  { m_portFrontFlare ->blockSignals(true); m_portFrontFlare ->setCurrentIndex(std::clamp(model.portFrontFlare, 0, 2)); m_portFrontFlare->blockSignals(false); }
     if (m_numPortsFront)   { m_numPortsFront  ->blockSignals(true); m_numPortsFront  ->setValue(std::max(1, model.numPortsFront)); m_numPortsFront->blockSignals(false); }
     if (m_inPortFrontInsert) {
         m_inPortFrontInsert->blockSignals(true);
@@ -4519,6 +4534,7 @@ void EnclosureWidget::clearFields()
     if (m_numDrivers)  { m_numDrivers->blockSignals(true);  m_numDrivers->setValue(1);         m_numDrivers->blockSignals(false); }
     if (m_wiringBtnSeries) { m_wiringBtnSeries->blockSignals(true); m_wiringBtnSeries->setChecked(true); m_wiringBtnSeries->blockSignals(false); }
     if (m_portFlare)   { m_portFlare->blockSignals(true);   m_portFlare->setCurrentIndex(0);   m_portFlare->blockSignals(false); }
+    if (m_portFrontFlare) { m_portFrontFlare->blockSignals(true); m_portFrontFlare->setCurrentIndex(0); m_portFrontFlare->blockSignals(false); }
     if (m_inPortWallThick){ m_inPortWallThick->blockSignals(true); m_inPortWallThick->setValue(3.0); m_inPortWallThick->blockSignals(false); }
     if (m_inPortInsert)   { m_inPortInsert->blockSignals(true);    m_inPortInsert->setValue(0.0);    m_inPortInsert->blockSignals(false); }
     if (m_portInsertSlider) { m_portInsertSlider->blockSignals(true); m_portInsertSlider->setValue(0); m_portInsertSlider->blockSignals(false); }

@@ -329,6 +329,7 @@ private:
     // Front port geometry section (BP6 only)
     QWidget           *m_frontPortSection  = nullptr;
     QComboBox         *m_portFrontShape    = nullptr;
+    QComboBox         *m_portFrontFlare    = nullptr;  ///< 0=straight,1=one end,2=both
     QWidget           *m_portFrontDiamRow  = nullptr;
     QDoubleSpinBox    *m_inPortFrontDiam   = nullptr;
     QWidget           *m_portFrontRectRows = nullptr;
