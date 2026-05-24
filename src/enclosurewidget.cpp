@@ -1,6 +1,7 @@
 #include "enclosurewidget.h"
 #include "portphysics.h"
 #include "tscalculator.h"
+#include "diagrams/portdiagram.h"
 #include "noscrollspinbox.h"
 #include "driverdetailwidget.h"
 #include "theme.h"
@@ -2863,16 +2864,9 @@ void EnclosureWidget::buildUi()
             }
             cv->addWidget(m_portRectRows);
 
-            // Flare diagram note (hidden when straight)
-            m_portFlareNote = new QLabel;
-            m_portFlareNote->setFont(QFont("Monospace", 8));
-            m_portFlareNote->setStyleSheet(themed(
-                "color:%text2%; background:%input%;"
-                "font-family:'IBM Plex Mono',monospace; font-size:8pt;"
-                "padding:6px 8px; border-left:2px solid %accent%;"));
-            m_portFlareNote->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-            m_portFlareNote->setVisible(false);
-            cv->addWidget(m_portFlareNote);
+            // Schematic port cross-section diagram.
+            m_portDiagram = new DiagramView;
+            cv->addWidget(m_portDiagram);
 
             // Extra surface area (optional, e.g. bracing) — always visible
             {
@@ -3843,32 +3837,10 @@ void EnclosureWidget::updatePortLength()
     if (m_activeIdx < 0 || m_activeIdx >= m_models.size()) { clearOut(); return; }
     const auto &m = m_models[m_activeIdx];
 
-    // ── Flare note / diagram ─────────────────────────────────────
-    if (m_portFlareNote) {
-        if (m.portFlare == 0) {
-            m_portFlareNote->setVisible(false);
-        } else {
-            // ASCII cross-section diagram: the flared end is to the left (outer/baffle side)
-            const bool bothEnds = (m.portFlare == 2);
-            QString diagram;
-            if (!bothEnds) {
-                diagram =
-                    "  \u2190\u2500\u2500\u2500\u2500\u2500 L \u2500\u2500\u2500\u2500\u2500\u2192\n"
-                    " \u256f\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n"
-                    "\u2502                   \u2502\n"
-                    " \u2572\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n"
-                    " \u2191 from \u00BD flare";
-            } else {
-                diagram =
-                    "  \u2190\u2500\u2500\u2500\u2500\u2500 L \u2500\u2500\u2500\u2500\u2500\u2192\n"
-                    " \u256f\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e\n"
-                    "\u2502                   \u2502\n"
-                    " \u2572\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2571\n"
-                    " \u2191 from \u00BD flares \u2191";
-            }
-            m_portFlareNote->setText(diagram);
-            m_portFlareNote->setVisible(true);
-        }
+    // ── Port cross-section diagram ───────────────────────────────
+    if (m_portDiagram) {
+        BoxModel diag = m;   // copy for the draw callback
+        m_portDiagram->setDraw([diag](DiagramPainter &d){ drawPortSection(d, diag); });
     }
 
     // For BP4, use front-chamber tuning with existing rear-port geometry controls
@@ -4546,7 +4518,7 @@ void EnclosureWidget::clearFields()
     if (m_portInsertSlider) { m_portInsertSlider->blockSignals(true); m_portInsertSlider->setValue(0); m_portInsertSlider->blockSignals(false); }
     if (m_portInsertPctLbl) m_portInsertPctLbl->setText("0%");
     if (m_inPortBraceSurf) { m_inPortBraceSurf->blockSignals(true); m_inPortBraceSurf->setValue(0.0); m_inPortBraceSurf->blockSignals(false); }
-    if (m_portFlareNote)   m_portFlareNote->setVisible(false);
+    if (m_portDiagram)     m_portDiagram->setDraw(nullptr);
     if (m_portFrontLenLbl)  m_portFrontLenLbl ->setText("–");
     if (m_portFrontAreaLbl) m_portFrontAreaLbl->setText("–");
     if (m_volLabel) m_volLabel->setText("BOX VOL");

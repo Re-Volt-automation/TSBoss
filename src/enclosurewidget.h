@@ -3,6 +3,7 @@
 #include "driverrecord.h"
 #include "driverdb.h"
 #include "driverdetailwidget.h"
+#include "diagrams/diagramview.h"
 #include <QWidget>
 #include <QList>
 #include <QColor>
@@ -315,7 +316,7 @@ private:
     QComboBox         *m_portWalls      = nullptr;  ///< rect only: shared walls (0–3)
     QSpinBox          *m_numPorts       = nullptr;
     QComboBox         *m_portFlare      = nullptr;  ///< 0=straight,1=one end,2=both
-    QLabel            *m_portFlareNote  = nullptr;  ///< diagram + note, shown when flared
+    DiagramView       *m_portDiagram    = nullptr;  ///< schematic port cross-section
     QLabel            *m_portFbLabel    = nullptr;  ///< "fb:" row label in Port tab (hidden for BP)
     QLabel            *m_portQLLabel    = nullptr;  ///< "QL:" row label in Port tab (hidden for BP)
     QLabel            *m_portSectionHdr = nullptr;  ///< "REAR PORT" / "FRONT PORT" context header
