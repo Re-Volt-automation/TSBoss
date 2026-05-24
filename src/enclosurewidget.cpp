@@ -4618,7 +4618,9 @@ void EnclosureWidget::clearFields()
     if (m_portDiagram)     m_portDiagram->setDraw(nullptr);
     if (m_portFrontLenLbl)  m_portFrontLenLbl ->setText("–");
     if (m_portFrontAreaLbl) m_portFrontAreaLbl->setText("–");
+    if (m_portFrontSurfAreaLbl) m_portFrontSurfAreaLbl->setText("–");
     if (m_portFrontVolInnerLbl) m_portFrontVolInnerLbl->setText("–");
+    if (m_portFrontVolDisplLbl) m_portFrontVolDisplLbl->setText("–");
     if (m_portFrontLenEachLbl)  m_portFrontLenEachLbl ->setText("–");
     if (m_portFrontF2HLbl)      m_portFrontF2HLbl     ->setText("–");
     if (m_volLabel) m_volLabel->setText("BOX VOL");
