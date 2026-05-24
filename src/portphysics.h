@@ -78,6 +78,10 @@ inline double flareK(int portFlare)
     }
 }
 
+// Turbulent end-loss resistance for a port at air velocity u [m/s], per-port area Ap [m²].
+inline double portTurbR(double u, double Ap, int flare)
+{ return 0.5 * RHO * flareK(flare) * std::abs(u) / std::max(Ap, 1e-9); }
+
 // Chuffing-onset air velocity [m/s] for the displayed reference line, by flare.
 // A flare/radius keeps the flow attached through the area change, delaying the
 // turbulent jetting that causes audible chuffing — so flared ports tolerate a
@@ -105,7 +109,7 @@ inline Cpx portZ(const BoxModel &m, double f, double u)
     const double Rp_visc = omegab * Map0 / m.QL;
 
     const double Ap      = std::max(portArea_m2(m), 1e-9);
-    const double Rp_turb = 0.5 * RHO * flareK(m.portFlare) * std::abs(u) / Ap;
+    const double Rp_turb = portTurbR(u, Ap, m.portFlare);
     // mapVelCoeff is a BoxModel field defaulting to 0 (tuning-shift hook, off in v1),
     // so Map == Map0 today; wired in for later validation.
     const double Map     = Map0 * (1.0 - m.mapVelCoeff * std::abs(u));

@@ -202,7 +202,8 @@ int main() {
         // power=0 -> velocities zero (linear limit, no drive).
         const auto s0 = pp::bandpassSolve(bp6, bp6.fbFront, 0.0);
         check(s0.uFront == 0.0 && s0.uRear == 0.0, "BP6 power=0 -> zero velocity");
-        // Flare ranking: at high power a flared front port loses less -> >= velocity than sharp.
+        // Flare ranking: flared front port has lower turbulent resistance -> lower port
+        // impedance -> higher port flow -> higher velocity than sharp at the same power.
         BoxModel sharp = makeBP6();  sharp.portFrontFlare = 0;
         BoxModel flared = makeBP6(); flared.portFrontFlare = 2;
         const double us = pp::bandpassSolve(sharp,  sharp.fbFront,  2000.0).uFront;

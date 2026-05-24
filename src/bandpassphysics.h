@@ -27,6 +27,9 @@ inline bool hasBP6Data(const BoxModel &m)
 
 struct BPAmps { Cpx cone, rearPort, frontPort; };
 
+// NOTE: unlike pp::portZ, the bandpass chamber model does not apply the mapVelCoeff
+// tuning-shift term (it defaults to 0 / off in v1); Map is velocity-independent here.
+
 // Velocity-aware per-chamber acoustic impedance. u = port air velocity [m/s];
 // Ap = per-port area [m²]; flare selects the turbulent loss coefficient.
 inline Cpx chamberAcousticZ(double Vb_L, double fb, double QL_, double omega,
@@ -39,7 +42,7 @@ inline Cpx chamberAcousticZ(double Vb_L, double fb, double QL_, double omega,
     const double omegab  = 2.0 * PI * fb;
     const double Map     = 1.0 / (omegab*omegab*Cab);
     const double Rp_visc = omegab * Map / std::max(QL_, 0.1);
-    const double Rp_turb = 0.5 * RHO * flareK(flare) * std::abs(u) / std::max(Ap, 1e-9);
+    const double Rp_turb = portTurbR(u, Ap, flare);
     const Cpx Zport(Rp_visc + Rp_turb, omega*Map);
     return Zcab * Zport / (Zcab + Zport);
 }
@@ -53,7 +56,7 @@ inline Cpx chamberPortFlow(const Cpx &Sdv, double Vb_L, double fb, double QL_, d
     const double omegab  = 2.0 * PI * fb;
     const double Map     = 1.0 / (omegab*omegab*Cab);
     const double Rp_visc = omegab * Map / std::max(QL_, 0.1);
-    const double Rp_turb = 0.5 * RHO * flareK(flare) * std::abs(u) / std::max(Ap, 1e-9);
+    const double Rp_turb = portTurbR(u, Ap, flare);
     const Cpx Zcab(0.0, -1.0/(omega*Cab));
     const Cpx Zport(Rp_visc + Rp_turb, omega*Map);
     const Cpx Za = Zcab * Zport / (Zcab + Zport);
