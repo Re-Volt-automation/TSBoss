@@ -332,6 +332,7 @@ private:
     QComboBox         *m_portFrontFlare    = nullptr;  ///< 0=straight,1=one end,2=both
     QWidget           *m_portFrontDiamRow  = nullptr;
     QDoubleSpinBox    *m_inPortFrontDiam   = nullptr;
+    QDoubleSpinBox    *m_inPortFrontWallThick = nullptr; ///< front round port wall thickness
     QWidget           *m_portFrontRectRows = nullptr;
     QDoubleSpinBox    *m_inPortFrontW      = nullptr;
     QDoubleSpinBox    *m_inPortFrontH      = nullptr;

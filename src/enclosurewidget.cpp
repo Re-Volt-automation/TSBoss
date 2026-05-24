@@ -2926,6 +2926,10 @@ void EnclosureWidget::buildUi()
                     m_inPortFrontDiam = mkWheelSpin(10.0, 400.0, 0, 5.0, " mm");
                     m_inPortFrontDiam->setValue(75.0);
 
+                    m_inPortFrontWallThick = mkWheelSpin(0.5, 50.0, 1, 1.0, " mm");
+                    m_inPortFrontWallThick->setValue(3.0);
+                    m_inPortFrontWallThick->setToolTip("Wall thickness of the front port tube");
+
                     m_inPortFrontInsert = mkParamSpin(0.0, 1000.0, 0, 5.0, " mm");
                     m_inPortFrontInsert->setValue(0.0);
                     m_inPortFrontInsert->setToolTip(
@@ -2949,6 +2953,7 @@ void EnclosureWidget::buildUi()
                     }
 
                     f->addRow(mkFormLabel("Inner Ø:"),          m_inPortFrontDiam);
+                    f->addRow(mkFormLabel("Wall thickness:"),    m_inPortFrontWallThick);
                     f->addRow(mkFormLabel("Extends into box:"),  m_inPortFrontInsert);
                     f->addRow(mkFormLabel(""),                   frontInsertSliderRow);
                 }
@@ -3116,7 +3121,7 @@ void EnclosureWidget::buildUi()
                 if (m_inQLFront) { m_inQLFront->blockSignals(true); m_inQLFront->setValue(v); m_inQLFront->blockSignals(false); }
                 onParamChanged();
             });
-        for (auto *s : {m_inPortFrontDiam, m_inPortFrontW, m_inPortFrontH, m_inPortFrontBraceSurf})
+        for (auto *s : {m_inPortFrontDiam, m_inPortFrontWallThick, m_inPortFrontW, m_inPortFrontH, m_inPortFrontBraceSurf})
             if (s) connect(s, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
                            this, &EnclosureWidget::onParamChanged);
         if (m_inPortFrontInsert)
@@ -4155,8 +4160,10 @@ void EnclosureWidget::updatePortLength()
         if (m_portFrontVolDisplLbl) {
             if (m.portFrontShape == 0) {
                 const double r_inner = (m_inPortFrontDiam ? m_inPortFrontDiam->value() : 75.0) / 2000.0;
+                const double t       = m.portFrontWallThick_mm / 1000.0;   // tube displaces its outer volume
+                const double r_outer = r_inner + t;
                 const double insertM = m.portFrontInsertDepth_mm / 1000.0;
-                const double V_L = Nf * PI * r_inner * r_inner * insertM * 1000.0;
+                const double V_L = Nf * PI * r_outer * r_outer * insertM * 1000.0;
                 m_portFrontVolDisplLbl->setText(insertM > 0.0
                     ? QString("%1 L").arg(V_L, 0, 'f', 3) : "0 L");
                 m_portFrontVolDisplLbl->setVisible(true);
@@ -4237,6 +4244,7 @@ void EnclosureWidget::onParamChanged()
         else if (model.portFrontShape == 1 && m_inPortFrontW)
             model.portFrontWidth_mm  = m_inPortFrontW->value();
         if (m_inPortFrontH)         model.portFrontHeight_mm        = m_inPortFrontH->value();
+        if (m_inPortFrontWallThick) model.portFrontWallThick_mm     = m_inPortFrontWallThick->value();
         if (m_inPortFrontInsert)    model.portFrontInsertDepth_mm   = m_inPortFrontInsert->value();
         if (m_inPortFrontBraceSurf) model.portFrontExtraSurfArea_cm2 = m_inPortFrontBraceSurf->value();
     }
@@ -4383,6 +4391,7 @@ void EnclosureWidget::loadModelIntoFields(int index)
     if (m_inPortFrontDiam) { m_inPortFrontDiam->blockSignals(true); m_inPortFrontDiam->setValue(model.portFrontWidth_mm); m_inPortFrontDiam->blockSignals(false); }
     if (m_inPortFrontW)    { m_inPortFrontW   ->blockSignals(true); m_inPortFrontW   ->setValue(model.portFrontShape == 1 ? model.portFrontWidth_mm : m_inPortFrontW->value()); m_inPortFrontW->blockSignals(false); }
     if (m_inPortFrontH)    { m_inPortFrontH   ->blockSignals(true); m_inPortFrontH   ->setValue(model.portFrontHeight_mm); m_inPortFrontH->blockSignals(false); }
+    if (m_inPortFrontWallThick) { m_inPortFrontWallThick->blockSignals(true); m_inPortFrontWallThick->setValue(model.portFrontWallThick_mm); m_inPortFrontWallThick->blockSignals(false); }
     if (m_portFrontWalls)  { m_portFrontWalls ->blockSignals(true); m_portFrontWalls ->setCurrentIndex(std::clamp(model.portFrontWalls, 0, 3)); m_portFrontWalls->blockSignals(false); }
     if (m_portFrontFlare)  { m_portFrontFlare ->blockSignals(true); m_portFrontFlare ->setCurrentIndex(std::clamp(model.portFrontFlare, 0, 2)); m_portFrontFlare->blockSignals(false); }
     if (m_numPortsFront)   { m_numPortsFront  ->blockSignals(true); m_numPortsFront  ->setValue(std::max(1, model.numPortsFront)); m_numPortsFront->blockSignals(false); }
@@ -4581,6 +4590,7 @@ void EnclosureWidget::clearFields()
     if (m_portFlare)   { m_portFlare->blockSignals(true);   m_portFlare->setCurrentIndex(0);   m_portFlare->blockSignals(false); }
     if (m_portFrontFlare) { m_portFrontFlare->blockSignals(true); m_portFrontFlare->setCurrentIndex(0); m_portFrontFlare->blockSignals(false); }
     if (m_inPortWallThick){ m_inPortWallThick->blockSignals(true); m_inPortWallThick->setValue(3.0); m_inPortWallThick->blockSignals(false); }
+    if (m_inPortFrontWallThick){ m_inPortFrontWallThick->blockSignals(true); m_inPortFrontWallThick->setValue(3.0); m_inPortFrontWallThick->blockSignals(false); }
     if (m_inPortInsert)   { m_inPortInsert->blockSignals(true);    m_inPortInsert->setValue(0.0);    m_inPortInsert->blockSignals(false); }
     if (m_portInsertSlider) { m_portInsertSlider->blockSignals(true); m_portInsertSlider->setValue(0); m_portInsertSlider->blockSignals(false); }
     if (m_portInsertPctLbl) m_portInsertPctLbl->setText("0%");
