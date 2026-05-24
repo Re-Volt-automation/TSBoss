@@ -15,6 +15,7 @@
 #include <QGroupBox>
 #include <QLabel>
 #include <QComboBox>
+#include <QAbstractSpinBox>
 #include <QDoubleSpinBox>
 #include <QPushButton>
 #include <QListWidget>
@@ -1806,6 +1807,18 @@ static QDoubleSpinBox *mkParamSpin(double lo, double hi, int dec,
     return s;
 }
 
+// Give every text input and dropdown under `root` the same height so the
+// DRIVER / CHAMBERS / PORT forms line up. A fixed height also stops the inputs
+// from stretching when the param panel is resized — the surrounding QScrollArea
+// absorbs any overflow instead. Font is already unified by the global QSS.
+static void unifyInputs(QWidget *root)
+{
+    if (!root) return;
+    constexpr int kInputH = 26;
+    for (auto *w : root->findChildren<QAbstractSpinBox *>()) w->setFixedHeight(kInputH);
+    for (auto *w : root->findChildren<QComboBox *>())        w->setFixedHeight(kInputH);
+}
+
 static QDoubleSpinBox *mkWheelSpin(double lo, double hi, int dec,
                                     double step, const QString &sfx)
 {
@@ -3154,11 +3167,32 @@ void EnclosureWidget::buildUi()
     // ── PARAM TABS ────────────────────────────────────────────────
     m_paramTabs = new QTabWidget;
     m_paramTabs->setObjectName("encParamTabs");
-    m_paramTabs->addTab(paramPanel,      "DRIVER");
-    m_paramTabs->addTab(chambersPanel,   "CHAMBERS");
-    m_paramTabs->addTab(m_portTabContent, "PORT");
+    // Uniform input height across all three tabs (incl. the BP6 front-port
+    // section, which is detached from m_portTabContent at build time).
+    unifyInputs(paramPanel);
+    unifyInputs(chambersPanel);
+    unifyInputs(m_portTabContent);
+    unifyInputs(m_frontPortSection);
+
+    // Each tab page scrolls instead of squashing its form when the param panel
+    // is made too short. setWidgetResizable keeps the page at its natural size
+    // (inputs are fixed-height, so they never autoscale) and shows a scrollbar
+    // only when the viewport is smaller than the content.
+    auto wrapScroll = [](QWidget *content) -> QScrollArea * {
+        auto *sa = new QScrollArea;
+        sa->setWidget(content);
+        sa->setWidgetResizable(true);
+        sa->setFrameShape(QFrame::NoFrame);
+        sa->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        sa->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        sa->setStyleSheet("QScrollArea{background:transparent;border:none;}");
+        sa->viewport()->setStyleSheet("background:transparent;");
+        return sa;
+    };
+    m_paramTabs->addTab(wrapScroll(paramPanel),       "DRIVER");
+    m_paramTabs->addTab(wrapScroll(chambersPanel),    "CHAMBERS");
+    m_paramTabs->addTab(wrapScroll(m_portTabContent), "PORT");
     m_paramTabs->setMinimumHeight(160);
-    m_paramTabs->setMaximumHeight(620);
 
     // Right side: vertical splitter with plot tabs + param tabs
     auto *rightSplit = new QSplitter(Qt::Vertical);
