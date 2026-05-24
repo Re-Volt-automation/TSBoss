@@ -64,7 +64,8 @@ inline Cpx chamberPortFlow(const Cpx &Sdv, double Vb_L, double fb, double QL_, d
 }
 
 struct BPSolution {
-    Cpx    cone, rearPort, frontPort;   // 1 V-normalized acoustic volume velocities
+    Cpx    cone, rearPort, frontPort;   // acoustic volume velocities for 1 V input
+                                        // (circuit loaded at the converged turbulent state)
     double Zin;                         // |input electrical impedance| [Ω]
     double uRear, uFront;               // peak port air velocities [m/s] at `power`
 };
