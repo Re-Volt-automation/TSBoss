@@ -137,7 +137,7 @@ static BPMetrics bandpassMetrics(const BoxModel &m)
     for (int i = 0; i < N; ++i) {
         const double t = double(i) / (N - 1);
         const double f = std::pow(10.0, std::log10(1.0) + t * (std::log10(500.0) - std::log10(1.0)));
-        const double s = bandpassSplRaw(m, f);
+        const double s = bandpassSplRaw(m, f, 0.0);
         if (s > peak) { peak = s; fPeak = f; }
     }
     if (peak <= 0.0) return out;
@@ -146,11 +146,11 @@ static BPMetrics bandpassMetrics(const BoxModel &m)
     // Search f3Low: below fPeak, going up from 1 Hz
     {
         double lo = 1.0, hi = fPeak;
-        if (bandpassSplRaw(m, lo) >= target) { out.f3Low = lo; }
+        if (bandpassSplRaw(m, lo, 0.0) >= target) { out.f3Low = lo; }
         else {
             for (int i = 0; i < 64; ++i) {
                 const double mid = std::sqrt(lo*hi);
-                (bandpassSplRaw(m, mid) < target) ? lo = mid : hi = mid;
+                (bandpassSplRaw(m, mid, 0.0) < target) ? lo = mid : hi = mid;
             }
             out.f3Low = std::sqrt(lo*hi);
         }
@@ -158,11 +158,11 @@ static BPMetrics bandpassMetrics(const BoxModel &m)
     // Search f3High: above fPeak, up to 500 Hz
     {
         double lo = fPeak, hi = 500.0;
-        if (bandpassSplRaw(m, hi) >= target) { out.f3High = hi; }
+        if (bandpassSplRaw(m, hi, 0.0) >= target) { out.f3High = hi; }
         else {
             for (int i = 0; i < 64; ++i) {
                 const double mid = std::sqrt(lo*hi);
-                (bandpassSplRaw(m, mid) >= target) ? lo = mid : hi = mid;
+                (bandpassSplRaw(m, mid, 0.0) >= target) ? lo = mid : hi = mid;
             }
             out.f3High = std::sqrt(lo*hi);
         }
@@ -173,7 +173,7 @@ static BPMetrics bandpassMetrics(const BoxModel &m)
         for (int i = 0; i < N; ++i) {
             const double t = double(i)/(N-1);
             const double f = std::pow(10.0, std::log10(out.f3Low) + t * (std::log10(out.f3High) - std::log10(out.f3Low)));
-            const double s = bandpassSplRaw(m, f);
+            const double s = bandpassSplRaw(m, f, 0.0);
             if (s > 0) { mn = std::min(mn, s); mx = std::max(mx, s); }
         }
         if (mn > 0 && mx > 0) out.ripple = 20.0 * std::log10(mx / mn);
@@ -349,13 +349,13 @@ void ResponsePlot::paintEvent(QPaintEvent *)
             double ref = 0.0;
             for (int i = 0; i <= SPL_SCAN; ++i) {
                 const double f = std::pow(10.0, lfMin + (lfMax - lfMin)*i/double(SPL_SCAN));
-                ref = std::max(ref, bandpassSplRaw(m, f));
+                ref = std::max(ref, bandpassSplRaw(m, f, mp));
             }
             if (ref <= 0) continue;
             const double peakDb = (m.peakSpl > 0) ? m.peakSpl : 100.0;
             for (int i = 0; i <= SPL_SCAN; ++i) {
                 const double f   = std::pow(10.0, lfMin + (lfMax - lfMin)*i/double(SPL_SCAN));
-                const double raw = bandpassSplRaw(m, f);
+                const double raw = bandpassSplRaw(m, f, mp);
                 if (raw <= 0) continue;
                 const double db  = peakDb + pwrOffset + 20.0*std::log10(raw / ref);
                 if (std::isfinite(db) && db > -100.0) { yMax = std::max(yMax, db); yMin = std::min(yMin, db); }
@@ -495,12 +495,13 @@ void ResponsePlot::paintEvent(QPaintEvent *)
             }
         } else if (isBandpass(m)) {
             const bool bp6 = isBP6(m);
+            const double mp = modelPower(m);
             if (bp6 ? !hasBP6Data(m) : !hasBP4Data(m)) return;
             // Find raw peak; normalise so peak == m.peakSpl
             double ref = 0.0;
             for (int i = 0; i <= N; ++i) {
                 const double f = std::pow(10.0, lfMin + (lfMax-lfMin)*i/double(N));
-                ref = std::max(ref, bandpassSplRaw(m, f));
+                ref = std::max(ref, bandpassSplRaw(m, f, mp));
             }
             if (ref <= 0) return;
             const double peakDb = (m.peakSpl > 0) ? m.peakSpl : 100.0;
@@ -520,7 +521,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
             };
             // Total
             {
-                QPainterPath path = buildBPath(bandpassSplRaw);
+                QPainterPath path = buildBPath([&](const BoxModel &mm, double ff){ return bandpassSplRaw(mm, ff, mp); });
                 QColor c = m.color; if (!active) c.setAlpha(100);
                 p.setPen(QPen(c, active ? 3.0 : 1.8, Qt::SolidLine));
                 p.setBrush(Qt::NoBrush); p.drawPath(path);
@@ -530,12 +531,12 @@ void ResponsePlot::paintEvent(QPaintEvent *)
             // no useful decomposition to draw.
             if (bp6) {
                 // Front port — dotted
-                QPainterPath fpPath = buildBPath(bandpassFrontPortSplRaw);
+                QPainterPath fpPath = buildBPath([&](const BoxModel &mm, double ff){ return bandpassFrontPortSplRaw(mm, ff, mp); });
                 QColor cf = m.color; cf.setAlpha(active ? 160 : 70);
                 p.setPen(QPen(cf, active ? 1.8 : 1.2, Qt::DotLine));
                 p.setBrush(Qt::NoBrush); p.drawPath(fpPath);
                 // Rear port — dashed
-                QPainterPath rpPath = buildBPath(bandpassRearPortSplRaw);
+                QPainterPath rpPath = buildBPath([&](const BoxModel &mm, double ff){ return bandpassRearPortSplRaw(mm, ff, mp); });
                 QColor cr = m.color; cr.setAlpha(active ? 160 : 70);
                 p.setPen(QPen(cr, active ? 1.8 : 1.2, Qt::DashLine));
                 p.setBrush(Qt::NoBrush); p.drawPath(rpPath);
@@ -791,7 +792,7 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
                 if (isBP6(m) ? !hasBP6Data(m) : !hasBP4Data(m)) continue;
                 for (int i = 0; i <= GD_SCAN; ++i) {
                     const double f  = std::pow(10.0, lfLo + (lfHi-lfLo)*i/double(GD_SCAN));
-                    const double gd = bandpassGroupDelay(m, f);
+                    const double gd = bandpassGroupDelay(m, f, 0.0 /* power: no GD power control; linear limit */);
                     if (std::isfinite(gd) && gd > 0) yMax = std::max(yMax, gd);
                 }
                 anyValid = true;
@@ -881,7 +882,7 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
             for (int i = 0; i <= 500; ++i) {
                 const double lf = lfMin + (lfMax-lfMin)*i/500.0;
                 const double f  = std::pow(10.0, lf);
-                const double gd = bandpassGroupDelay(m, f);
+                const double gd = bandpassGroupDelay(m, f, 0.0 /* power: no GD power control; linear limit */);
                 if (gd < 0 || gd > yMax*2) continue;
                 const QPointF pt(xPx(f), yPx(gd));
                 if (first) { curve.moveTo(pt); first = false; } else curve.lineTo(pt);
@@ -947,7 +948,7 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
                 gd = portedGroupDelay(m, cf, 0.0 /* power: no GD power control; linear limit (Task 6: revisit) */);
             } else if (isBandpass(m)) {
                 if (isBP6(m) ? !hasBP6Data(m) : !hasBP4Data(m)) continue;
-                gd = bandpassGroupDelay(m, cf);
+                gd = bandpassGroupDelay(m, cf, 0.0 /* power: no GD power control; linear limit */);
             } else {
                 if (m.Fc <= 0 || m.Qtc <= 0) continue;
                 const double x  = cf/m.Fc;
@@ -996,7 +997,7 @@ static bool hasImpedanceData(const BoxModel &m)
 static double boxImpedance(const BoxModel &m, double f, double power)
 {
     if (isVented(m))   return portedImpedance(m, f, power);
-    if (isBandpass(m)) return bandpassImpedance(m, f);
+    if (isBandpass(m)) return bandpassImpedance(m, f, power);
     const double wc      = 2.0 * PI * m.Fc;
     const double mms     = m.mms_g / 1000.0;
     const double Cms_box = 1.0 / (wc * wc * mms);
@@ -1023,7 +1024,7 @@ static bool hasSystemZData(const BoxModel &m)
 static double systemImpedance(const BoxModel &m, double f, double power)
 {
     if (isVented(m))   return portedImpedance(m, f, power);   // portedImpedance already scales for N
-    if (isBandpass(m)) return bandpassImpedance(m, f); // bandpassImpedance scales for N
+    if (isBandpass(m)) return bandpassImpedance(m, f, power); // bandpassImpedance scales for N
     const double N = m.numDrivers;
     if (!hasSystemZData(m)) return m.Re * N;
     // Sealed / IB: use pre-computed Fc (which already incorporates box stiffness and N*Vas).
@@ -1065,13 +1066,12 @@ static double coneDisplacement_mm(const BoxModel &m, double f, double power)
         // V = sqrt(P·Z),  |x| = |v_1V|·V / ω
         return v_1V * std::sqrt(power * Z) / omega * 1000.0;
     } else if (isBandpass(m)) {
-        const bool bp6 = isBP6(m);
-        if (bp6 ? !hasBP6Data(m) : !hasBP4Data(m)) return 0.0;
+        if (isBP6(m) ? !hasBP6Data(m) : !hasBP4Data(m)) return 0.0;
         const double Sd = m.Sd_cm2 * 1e-4;
         if (Sd <= 0) return 0.0;
-        auto a = bandpassAmplitudes(m, f, bp6);
+        auto a = bandpassAmplitudes(m, f, power);
         const double v_1V = std::abs(a.cone) / Sd;
-        const double Z = bandpassImpedance(m, f);
+        const double Z = bandpassImpedance(m, f, power);
         if (Z <= 0) return 0.0;
         return v_1V * std::sqrt(power * Z) / omega * 1000.0;
     } else {
