@@ -18,3 +18,14 @@ Makefile
 build-appimage/
 packaging/tools/
 *.AppImage
+
+# Windows build & portable deploy
+build-win/
+deploy/
+
+# Installer build output (TSBoss.iss source is kept)
+installer/out/
+installer/*.zip
+
+# Superpowers tooling
+.superpowers/
