@@ -33,6 +33,11 @@ set(PROJECT_SOURCES
     src/boxmodel.h
     src/boxmodelio.h
     src/boxmodelio.cpp
+    src/plots/plotsupport.h
+    src/plots/plotbase.h
+    src/plots/plotbase.cpp
+    src/plots/modelplots.h
+    src/plots/modelplots.cpp
     src/portphysics.h
     src/bandpassphysics.h
     src/enclosurewidget.h
@@ -119,6 +124,8 @@ add_test(NAME tscalculator_tests COMMAND tscalculator_tests)
 add_executable(plotrender_tests
     tests/plotrender_tests.cpp
     src/enclosurewidget.cpp
+    src/plots/plotbase.cpp
+    src/plots/modelplots.cpp
     src/boxmodelio.cpp
     src/tscalculator.cpp
     src/driverdb.cpp
