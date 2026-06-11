@@ -28,7 +28,13 @@
 #include <QDoubleSpinBox>
 #include <QGroupBox>
 #include <QCheckBox>
+#include <QCloseEvent>
+#include <QSettings>
+#include <QShortcut>
 #include <cmath>
+
+static constexpr int kSidebarExpanded  = 210;
+static constexpr int kSidebarCollapsed =  48;
 
 // ─────────────────────────────────────────────────────────────────
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
@@ -45,12 +51,48 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
     buildCentralWidget();
     buildSidebar();
+    buildShortcuts();
     updateStatusBar();
+    restoreWindowState();
 }
 
 MainWindow::~MainWindow()
 {
     m_db->close();
+}
+
+void MainWindow::restoreWindowState()
+{
+    QSettings s;
+    restoreGeometry(s.value("ui/mainGeometry").toByteArray());
+    if (!s.value("ui/sidebarExpanded", true).toBool()) {
+        m_sidebarExpanded = false;
+        m_sidebar->setFixedWidth(kSidebarCollapsed);
+        applySidebarState();
+    }
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    QSettings s;
+    s.setValue("ui/mainGeometry",    saveGeometry());
+    s.setValue("ui/sidebarExpanded", m_sidebarExpanded);
+    QMainWindow::closeEvent(event);
+}
+
+void MainWindow::buildShortcuts()
+{
+    auto add = [this](const QKeySequence &seq, auto slot) {
+        auto *sc = new QShortcut(seq, this);
+        connect(sc, &QShortcut::activated, this, slot);
+    };
+    add(QKeySequence("Ctrl+1"), &MainWindow::showEnclosureModel);
+    add(QKeySequence("Ctrl+2"), &MainWindow::showDatabase);
+    add(QKeySequence("Ctrl+3"), &MainWindow::showQuickMeasurement);
+    add(QKeySequence("Ctrl+4"), &MainWindow::showDatasheetEntry);
+    add(QKeySequence("Ctrl+5"), &MainWindow::launchWizard);
+    add(QKeySequence("Ctrl+,"), &MainWindow::showAdvancedSettings);
+    add(QKeySequence::HelpContents, &MainWindow::showAbout);   // F1
 }
 
 void MainWindow::buildCentralWidget()
@@ -91,9 +133,6 @@ void MainWindow::buildCentralWidget()
     // Start on enclosure model
     m_stack->setCurrentIndex(0);
 }
-
-static constexpr int kSidebarExpanded  = 210;
-static constexpr int kSidebarCollapsed =  48;
 
 void MainWindow::buildSidebar()
 {
@@ -144,6 +183,8 @@ void MainWindow::buildSidebar()
 
     auto *btnEnclosure = makeNavBtn("📦", "Enclosure Model");
     auto *btnDb        = makeNavBtn("🗄",  "Driver Database");
+    btnEnclosure->setToolTip("Enclosure Model  (Ctrl+1)");
+    btnDb->setToolTip("Driver Database  (Ctrl+2)");
 
     // ── New Entry dropdown ────────────────────────────────────────
     auto *btnNewEntry = new QPushButton("✏  New Entry  ▾");
@@ -155,10 +196,12 @@ void MainWindow::buildSidebar()
 
     auto *newEntryMenu = new QMenu(this);
     newEntryMenu->setObjectName("sidebarMenu");
-    auto *actQuick  = newEntryMenu->addAction("⚡  Quick Measurement");
-    auto *actWizard = newEntryMenu->addAction("🔬  Guided Wizard");
+    // Shortcut hints after \t are display-only; the QShortcuts in
+    // buildShortcuts() do the actual triggering.
+    auto *actQuick  = newEntryMenu->addAction("⚡  Quick Measurement\tCtrl+3");
+    auto *actWizard = newEntryMenu->addAction("🔬  Guided Wizard\tCtrl+5");
     newEntryMenu->addSeparator();
-    auto *actManual = newEntryMenu->addAction("📋  Manual / Datasheet");
+    auto *actManual = newEntryMenu->addAction("📋  Manual / Datasheet\tCtrl+4");
     connect(btnNewEntry, &QPushButton::clicked, this, [=]() {
         newEntryMenu->exec(btnNewEntry->mapToGlobal(QPoint(0, btnNewEntry->height())));
     });
@@ -173,6 +216,8 @@ void MainWindow::buildSidebar()
 
     auto *btnAdvanced = makeNavBtn("⚙", "Advanced Settings");
     auto *btnAbout    = makeNavBtn("ℹ", "About / Method");
+    btnAdvanced->setToolTip("Advanced Settings  (Ctrl+,)");
+    btnAbout->setToolTip("About / Method  (F1)");
 
     vb->addStretch();
 
@@ -356,12 +401,14 @@ void MainWindow::showEnclosureModel()
 {
     m_enclosure->refreshDriverList();
     m_stack->setCurrentIndex(0);
+    m_enclosure->setFocus();      // arm the page's Ctrl+S / Ctrl+O shortcuts
 }
 
 void MainWindow::showDatabase()
 {
     m_listWidget->refresh();
     m_stack->setCurrentIndex(1);
+    m_listWidget->setFocus();     // arm the page's Ctrl+F shortcut
 }
 
 void MainWindow::showDetail(int id)
@@ -703,6 +750,12 @@ void MainWindow::showAbout()
         "delay is the numerical phase derivative of the total acoustic output.</p>"
         "<p><b>Database:</b> SQLite, stored in the application data directory; "
         "schema is migrated forward via additive ALTER&nbsp;TABLE steps.</p>"
+        "<p><b>Keyboard shortcuts:</b><br>"
+        "Ctrl+1 Enclosure model &middot; Ctrl+2 Driver database &middot; "
+        "Ctrl+3 Quick measurement &middot; Ctrl+4 Datasheet entry &middot; "
+        "Ctrl+5 Guided wizard &middot; Ctrl+, Settings &middot; F1 About<br>"
+        "Enclosure page: Ctrl+S save project &middot; Ctrl+O load project<br>"
+        "Database page: Ctrl+F focus search</p>"
         "<hr>"
         "<p><b>Support the project:</b><br>"
         "TSBoss is a free, one-person side project. If it has been useful and "

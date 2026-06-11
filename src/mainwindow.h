@@ -40,6 +40,9 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
 
+protected:
+    void closeEvent(QCloseEvent *event) override;
+
 private slots:
     void showDatabase();
     void showDetail(int id);
@@ -58,6 +61,8 @@ private slots:
 private:
     void buildSidebar();
     void buildCentralWidget();
+    void buildShortcuts();
+    void restoreWindowState();
     void updateStatusBar();
     void toggleSidebar();
     void applySidebarState();
