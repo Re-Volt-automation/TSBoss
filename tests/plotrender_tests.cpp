@@ -1,6 +1,7 @@
 // Renders every plot class offscreen with fixed models and verifies the
 // output is non-blank. Run with --hashes to print per-plot image hashes —
 // used to prove refactors of the paint code are pixel-identical.
+// Run with --dump <dir> to also write the rendered PNGs for visual review.
 #include "enclosurewidget.h"
 #include "boxmodel.h"
 #include <QApplication>
@@ -86,6 +87,8 @@ int main(int argc, char **argv)
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QApplication app(argc, argv);
     const bool wantHashes = argc > 1 && std::strcmp(argv[1], "--hashes") == 0;
+    const QString dumpDir = (argc > 2 && std::strcmp(argv[1], "--dump") == 0)
+                            ? QString::fromLocal8Bit(argv[2]) : QString();
 
     const QList<BoxModel> models = { makeVented(), makeSealed() };
 
@@ -94,6 +97,7 @@ int main(int argc, char **argv)
     const QImage vp  = renderPlot<VoltagePlot>     ("VoltagePlot",      models);
     const QImage exc = renderPlot<ExcursionPlot>   ("ExcursionPlot",    models);
     const QImage pv  = renderPlot<PortVelocityPlot>("PortVelocityPlot", models);
+    const QImage z   = renderPlot<ImpedancePlot>   ("ImpedancePlot",    models);
 
     if (wantHashes) {
         printHash("ResponsePlot",     spl);
@@ -101,6 +105,16 @@ int main(int argc, char **argv)
         printHash("VoltagePlot",      vp);
         printHash("ExcursionPlot",    exc);
         printHash("PortVelocityPlot", pv);
+        printHash("ImpedancePlot",    z);
+    }
+    if (!dumpDir.isEmpty()) {
+        spl.save(dumpDir + "/ResponsePlot.png");
+        gd .save(dumpDir + "/GroupDelayPlot.png");
+        vp .save(dumpDir + "/VoltagePlot.png");
+        exc.save(dumpDir + "/ExcursionPlot.png");
+        pv .save(dumpDir + "/PortVelocityPlot.png");
+        z  .save(dumpDir + "/ImpedancePlot.png");
+        std::printf("PNGs written to %s\n", qPrintable(dumpDir));
     }
 
     if (g_failures) std::printf("\n%d FAILURE(S)\n", g_failures);

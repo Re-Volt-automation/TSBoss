@@ -422,6 +422,7 @@ void EnclosureWidget::buildUi()
     m_vpPlot   = new VoltagePlot;
     m_excPlot  = new ExcursionPlot;
     m_pvPlot   = new PortVelocityPlot;
+    m_zPlot    = new ImpedancePlot;
 
     // Helper: make a power-spinbox row (shared across Voltage, Excursion, Port Velocity tabs)
     auto mkPowerSpin = [&]() -> QDoubleSpinBox * {
@@ -608,6 +609,7 @@ void EnclosureWidget::buildUi()
     m_plotTabs->addTab(voltTab,   "POWER");         // index 2 (voltage + current)
     m_plotTabs->addTab(excTab,    "EXCURSION");     // index 3
     m_plotTabs->addTab(pvTab,     "PORT V");        // index 4
+    m_plotTabs->addTab(m_zPlot,   "IMPEDANCE");     // index 5 (all enclosure types)
     m_plotTabs->setTabEnabled(4, false);              // enabled only for vented
 
     // Bottom parameter strip
@@ -3280,6 +3282,7 @@ void EnclosureWidget::updatePlot()
     m_vpPlot  ->setModels(visible, visActive);
     m_excPlot ->setModels(visible, visActive);
     m_pvPlot  ->setModels(visible, visActive);
+    m_zPlot   ->setModels(visible, visActive);
 }
 
 // ── T/S field locking ────────────────────────────────────────────

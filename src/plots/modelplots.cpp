@@ -1413,3 +1413,186 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
 }
 
 
+
+// ════════════════════════════════════════════════════════════════════
+//  ImpedancePlot
+// ════════════════════════════════════════════════════════════════════
+ImpedancePlot::ImpedancePlot(QWidget *parent) : PlotBase(280, 1.0, parent) {}
+
+void ImpedancePlot::paintEvent(QPaintEvent *)
+{
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.fillRect(rect(), CLR_PAGE_BG());
+
+    const int ml = 58, mr = 16, mt = 16, mb = 42;
+    const QRectF area(ml, mt, width()-ml-mr, height()-mt-mb);
+    p.fillRect(area, CLR_PLOT_BG());
+
+    const double lfMin = std::log10(F_MIN);
+    const double lfMax = std::log10(F_MAX);
+
+    // |Z| at the small-signal limit (power -> 0): matches what an
+    // impedance sweep (DATS / REW) measures on the finished box.
+    auto zOf = [](const BoxModel &m, double f) { return systemImpedance(m, f, 0.0); };
+
+    // Y range: scan all models
+    double yMax = 10.0;
+    bool anyValid = false;
+    for (const auto &m : m_models) {
+        if (!hasSystemZData(m)) continue;
+        anyValid = true;
+        for (int i = 0; i <= 200; ++i) {
+            const double f = std::pow(10.0, lfMin + (lfMax-lfMin)*i/200.0);
+            const double z = zOf(m, f);
+            if (std::isfinite(z)) yMax = std::max(yMax, z);
+        }
+    }
+    double yMin = 0.0;
+    double niceStep;
+    if (m_yMin.has_value() && m_yMax.has_value()) {
+        yMin = *m_yMin; yMax = *m_yMax;
+        const double rawStep = (yMax - yMin) / 5.0;
+        const double mag = std::pow(10.0, std::floor(std::log10(std::max(rawStep, 1e-9))));
+        niceStep = std::ceil(rawStep / mag) * mag;
+    } else {
+        yMax *= 1.1;
+        const double rawStep = yMax / 5.0;
+        const double mag = std::pow(10.0, std::floor(std::log10(std::max(rawStep, 1e-9))));
+        niceStep = std::ceil(rawStep / mag) * mag;
+        yMax = std::ceil(yMax / niceStep) * niceStep;
+    }
+
+    auto xPx = [&](double f) { return area.left() + area.width()*(std::log10(f)-lfMin)/(lfMax-lfMin); };
+    auto yPx = [&](double z) { return area.top()  + area.height()*(yMax-z)/(yMax-yMin); };
+
+    // Grid
+    QFont small; small.setPointSize(8); p.setFont(small);
+    p.setPen(QPen(CLR_GRID(), 1.0));
+    const double gFreqs[] = {20,30,50,70,100,200,300,500,700,1000};
+    for (double f : gFreqs)
+        p.drawLine(QPointF(xPx(f), area.top()), QPointF(xPx(f), area.bottom()));
+    for (double z = yMin; z <= yMax+1e-9; z += niceStep)
+        p.drawLine(QPointF(area.left(), yPx(z)), QPointF(area.right(), yPx(z)));
+
+    // Axis labels
+    p.setPen(CLR_GREY());
+    for (double f : gFreqs) {
+        QString lbl = f>=1000 ? QString("%1k").arg(f/1000,0,'f',0) : QString::number(int(f));
+        p.drawText(QRectF(xPx(f)-20, area.bottom()+2, 40, 14), Qt::AlignHCenter, lbl);
+    }
+    for (double z = yMin; z <= yMax+1e-9; z += niceStep)
+        p.drawText(QRectF(0, yPx(z)-8, area.left()-4, 16),
+                   Qt::AlignRight|Qt::AlignVCenter, QString::number(int(std::round(z))));
+
+    // Axis titles
+    p.setPen(CLR_GREY_DK());
+    p.save();
+    p.translate(14, area.center().y());
+    p.rotate(-90);
+    p.drawText(QRectF(-area.height()/2.0, -14.0, area.height(), 28.0),
+               Qt::AlignCenter, "Impedance  (Ω)");
+    p.restore();
+    p.drawText(QRectF(area.left(), area.bottom()+20, area.width(), 16),
+               Qt::AlignHCenter, "Frequency (Hz)");
+
+    // Axes
+    p.setPen(QPen(CLR_GREY_DK(), 1.5));
+    p.drawLine(QPointF(area.left(), area.top()),    QPointF(area.left(),  area.bottom()));
+    p.drawLine(QPointF(area.left(), area.bottom()), QPointF(area.right(), area.bottom()));
+
+    if (!anyValid) {
+        p.setPen(CLR_GREY_LT());
+        QFont f; f.setPointSize(12); f.setItalic(true); p.setFont(f);
+        p.drawText(area, Qt::AlignCenter,
+                   "Set Rₑ, BL, mms, and Qms to see the impedance curve.");
+        return;
+    }
+
+    // Curves
+    auto drawCurve = [&](const BoxModel &m, bool active) {
+        if (!hasSystemZData(m)) return;
+        QPainterPath curve; bool first = true;
+        for (int i = 0; i <= 500; ++i) {
+            const double f = std::pow(10.0, lfMin + (lfMax-lfMin)*i/500.0);
+            const double z = zOf(m, f);
+            if (!std::isfinite(z)) continue;
+            const QPointF pt(xPx(f), yPx(z));
+            if (first) { curve.moveTo(pt); first = false; } else curve.lineTo(pt);
+        }
+        QColor c = m.color; if (!active) c.setAlpha(100);
+        p.setPen(QPen(c, active ? 3.0 : 1.8));
+        p.setBrush(Qt::NoBrush);
+        p.drawPath(curve);
+    };
+
+    p.setClipRect(area);
+    for (int i = 0; i < m_models.size(); ++i)
+        if (i != m_activeIdx) drawCurve(m_models[i], false);
+    if (m_activeIdx >= 0 && m_activeIdx < m_models.size())
+        drawCurve(m_models[m_activeIdx], true);
+    p.setClipping(false);
+
+    // Markers for the active model: Re reference and fb / Fc
+    if (m_activeIdx >= 0 && m_activeIdx < m_models.size()) {
+        const auto &am = m_models[m_activeIdx];
+        if (hasSystemZData(am)) {
+            // Re — the DC floor the curve approaches
+            if (am.Re > yMin && am.Re < yMax) {
+                p.setPen(QPen(CLR_GREY_LT(), 1.0, Qt::DotLine));
+                p.drawLine(QPointF(area.left(), yPx(am.Re)), QPointF(area.right(), yPx(am.Re)));
+                p.setPen(CLR_GREY());
+                QFont rf; rf.setPointSize(7); p.setFont(rf);
+                p.drawText(QRectF(area.right()-42, yPx(am.Re)-13, 40, 12),
+                           Qt::AlignRight|Qt::AlignVCenter, "Rₑ");
+            }
+            // Tuning marker: fb for ported (impedance minimum), Fc for sealed peak
+            const bool ported = isPorted(am);
+            const double markerFreq = ported ? (isBP4(am) ? am.fbFront : am.fb) : am.Fc;
+            const QString markerLbl = ported
+                ? QString("fb = %1 Hz").arg(markerFreq, 0, 'f', 1)
+                : QString("Fc = %1 Hz").arg(markerFreq, 0, 'f', 1);
+            if (markerFreq > F_MIN && markerFreq < F_MAX) {
+                QColor mc = am.color; mc.setAlpha(180);
+                p.setPen(QPen(mc, 1.2, Qt::DashLine));
+                p.drawLine(QPointF(xPx(markerFreq), area.top()), QPointF(xPx(markerFreq), area.bottom()));
+                p.setPen(mc);
+                QFont bf; bf.setPointSize(8); bf.setBold(true); p.setFont(bf);
+                p.drawText(QRectF(xPx(markerFreq) + 4, area.top() + 4, 100, 14),
+                           Qt::AlignLeft, markerLbl);
+            }
+        }
+    }
+
+    // Legend
+    {
+        QFont lf; lf.setPointSize(8); p.setFont(lf);
+        const int lx = int(area.right())-180; int ly = int(area.top())+8;
+        for (int i = 0; i < m_models.size(); ++i) {
+            const auto &m = m_models[i];
+            if (!hasSystemZData(m)) continue;
+            bool active = (i == m_activeIdx);
+            QColor c = m.color; if (!active) c.setAlpha(140);
+            p.setPen(QPen(c, active ? 2.5 : 1.5));
+            p.drawLine(QPoint(lx, ly+6), QPoint(lx+20, ly+6));
+            p.setPen(active ? CLR_GREY_DK() : CLR_GREY());
+            QFont tf; tf.setPointSize(8); tf.setBold(active); p.setFont(tf);
+            p.drawText(QRect(lx+24, ly, 150, 14), Qt::AlignLeft|Qt::AlignVCenter, m.name);
+            ly += 16;
+        }
+    }
+
+    // Cursor overlay
+    if (m_cursorFreq > 0) {
+        QVector<CursorEntry> entries;
+        for (int i = 0; i < m_models.size(); ++i) {
+            const auto &m = m_models[i];
+            if (!hasSystemZData(m)) continue;
+            const double z = zOf(m, m_cursorFreq);
+            if (!std::isfinite(z)) continue;
+            entries.append({m.color, i == m_activeIdx, m.name,
+                            yPx(z), QString("%1 Ω").arg(z, 0, 'f', 1)});
+        }
+        drawCursorOverlay(p, area, xPx(m_cursorFreq), m_cursorFreq, entries);
+    }
+}

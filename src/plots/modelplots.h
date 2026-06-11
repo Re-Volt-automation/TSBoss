@@ -56,6 +56,17 @@ protected:
     void paintEvent(QPaintEvent *) override;
 };
 
+/// Electrical input impedance |Z(f)| at the small-signal limit —
+/// vented saddle, sealed single peak, bandpass humps.
+class ImpedancePlot : public PlotBase
+{
+    Q_OBJECT
+public:
+    explicit ImpedancePlot(QWidget *parent = nullptr);
+protected:
+    void paintEvent(QPaintEvent *) override;
+};
+
 // ─────────────────────────────────────────────────────────────────
 //  PlotRangeSettings – optional Y-axis overrides for each plot.
 // ─────────────────────────────────────────────────────────────────
