@@ -1,16 +1,19 @@
 #pragma once
 #include "driverrecord.h"
 #include "driverdb.h"
+#include "driverfilter.h"
 #include <QWidget>
 #include <QList>
 
+class QDoubleSpinBox;
 class QTableWidget;
 class QLineEdit;
 class QLabel;
 class QPushButton;
 
 // ─────────────────────────────────────────────────────────────────
-//  DriverListWidget – searchable, sortable table of saved drivers.
+//  DriverListWidget – searchable, sortable table of saved drivers
+//  with parametric range filters and a side-by-side compare view.
 // ─────────────────────────────────────────────────────────────────
 class DriverListWidget : public QWidget
 {
@@ -33,18 +36,30 @@ private slots:
     void onEditClicked();
     void onDeleteClicked();
     void onUseClicked();
+    void onCompareClicked();
     void onExportCsv();
     void onImportCsv();
 
 private:
     void populate(const QList<DriverRecord> &records);
-    int  selectedId() const;  ///< sort-safe: reads id from Qt::UserRole of selected row
+    int  selectedId() const;   ///< sort-safe: reads id from Qt::UserRole of selected row
+    QList<int> selectedIds() const;
+    DriverFilter currentFilter() const;
+    QDoubleSpinBox *mkFilterSpin(double max, int dec, const QString &suffix);
 
     DriverDatabase *m_db;
     QTableWidget   *m_table;
     QLineEdit      *m_search;
     QLabel         *m_countLbl;
-    QPushButton    *m_btnEdit   = nullptr;
-    QPushButton    *m_btnDelete = nullptr;
-    QPushButton    *m_btnUse    = nullptr;
+    QPushButton    *m_btnEdit    = nullptr;
+    QPushButton    *m_btnDelete  = nullptr;
+    QPushButton    *m_btnUse     = nullptr;
+    QPushButton    *m_btnCompare = nullptr;
+
+    // Parametric filter row (collapsed by default)
+    QWidget        *m_filterRow  = nullptr;
+    QDoubleSpinBox *m_fsMin  = nullptr, *m_fsMax  = nullptr;
+    QDoubleSpinBox *m_qtsMin = nullptr, *m_qtsMax = nullptr;
+    QDoubleSpinBox *m_vasMin = nullptr, *m_vasMax = nullptr;
+    QDoubleSpinBox *m_reMin  = nullptr, *m_reMax  = nullptr;
 };

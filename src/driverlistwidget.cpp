@@ -12,6 +12,10 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QLabel>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDoubleSpinBox>
+#include <QItemSelectionModel>
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QShortcut>
@@ -38,12 +42,17 @@ DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
     m_search->setMinimumWidth(280);
 
     auto *btnRefresh = new QPushButton("Refresh");
-    m_btnUse    = new QPushButton("Use for Enclosure");
-    m_btnEdit   = new QPushButton("Edit");
-    m_btnDelete = new QPushButton("Delete");
+    m_btnUse     = new QPushButton("Use for Enclosure");
+    m_btnEdit    = new QPushButton("Edit");
+    m_btnDelete  = new QPushButton("Delete");
+    m_btnCompare = new QPushButton("Compare");
+    m_btnCompare->setToolTip("Select 2–4 drivers (Ctrl+click) to compare side by side");
     m_btnUse->setEnabled(false);
     m_btnEdit->setEnabled(false);
     m_btnDelete->setEnabled(false);
+    m_btnCompare->setEnabled(false);
+    auto *btnFilters = new QPushButton("Filters ▾");
+    btnFilters->setCheckable(true);
     auto *btnImport  = new QPushButton("Import CSV");
     auto *btnExport  = new QPushButton("Export CSV");
     m_countLbl = new QLabel;
@@ -66,22 +75,69 @@ DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
                              "padding:5px 14px;}QPushButton:hover{background:#7f8c8d;}");
     btnExport->setStyleSheet("QPushButton{background:#95a5a6;color:white;border-radius:4px;"
                              "padding:5px 14px;}QPushButton:hover{background:#7f8c8d;}");
+    m_btnCompare->setStyleSheet("QPushButton{background:#8e44ad;color:white;border-radius:4px;"
+                                "padding:5px 14px;}QPushButton:hover{background:#7d3c98;}"
+                                "QPushButton:disabled{background:#cdb8d8;color:#aaa;}");
+    btnFilters->setStyleSheet("QPushButton{background:#95a5a6;color:white;border-radius:4px;"
+                              "padding:5px 14px;}QPushButton:hover{background:#7f8c8d;}"
+                              "QPushButton:checked{background:#566573;}");
 
     toolbar->addWidget(m_search);
     toolbar->addWidget(btnRefresh);
+    toolbar->addWidget(btnFilters);
     toolbar->addWidget(m_btnUse);
     toolbar->addWidget(m_btnEdit);
     toolbar->addWidget(m_btnDelete);
+    toolbar->addWidget(m_btnCompare);
     toolbar->addWidget(btnImport);
     toolbar->addWidget(btnExport);
     toolbar->addStretch();
     toolbar->addWidget(m_countLbl);
 
+    // ── Parametric filter row (collapsed until Filters is toggled)
+    m_filterRow = new QWidget;
+    {
+        auto *h = new QHBoxLayout(m_filterRow);
+        h->setContentsMargins(0, 0, 0, 0);
+        h->setSpacing(6);
+        auto addRange = [&](const QString &name, QDoubleSpinBox *&lo,
+                            QDoubleSpinBox *&hi, double max, int dec,
+                            const QString &suffix) {
+            auto *lbl = new QLabel(name + ":");
+            lbl->setStyleSheet(themed("color:%muted%;"));
+            h->addWidget(lbl);
+            lo = mkFilterSpin(max, dec, suffix);
+            hi = mkFilterSpin(max, dec, suffix);
+            h->addWidget(lo);
+            h->addWidget(new QLabel("–"));
+            h->addWidget(hi);
+            h->addSpacing(10);
+        };
+        addRange("fs",  m_fsMin,  m_fsMax,  500.0,  1, " Hz");
+        addRange("Qts", m_qtsMin, m_qtsMax, 3.0,    2, "");
+        addRange("Vas", m_vasMin, m_vasMax, 2000.0, 1, " L");
+        addRange("Rₑ",  m_reMin,  m_reMax,  64.0,   1, " Ω");
+        auto *btnClear = new QPushButton("Clear");
+        btnClear->setStyleSheet("QPushButton{background:#95a5a6;color:white;border-radius:4px;"
+                                "padding:3px 10px;}QPushButton:hover{background:#7f8c8d;}");
+        connect(btnClear, &QPushButton::clicked, this, [this] {
+            for (auto *s : {m_fsMin, m_fsMax, m_qtsMin, m_qtsMax,
+                            m_vasMin, m_vasMax, m_reMin, m_reMax}) {
+                s->blockSignals(true); s->setValue(0.0); s->blockSignals(false);
+            }
+            refresh();
+        });
+        h->addWidget(btnClear);
+        h->addStretch();
+    }
+    m_filterRow->setVisible(false);
+    connect(btnFilters, &QPushButton::toggled, m_filterRow, &QWidget::setVisible);
+
     // ── Table
     m_table = new QTableWidget(0, C_COUNT);
     m_table->setHorizontalHeaderLabels(HEADERS);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_table->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->setAlternatingRowColors(true);
     m_table->setSortingEnabled(true);
@@ -102,6 +158,7 @@ DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
     heading->setStyleSheet(themed("font-size:14pt; font-weight:bold; color:%text2%;"));
     vb->addWidget(heading);
     vb->addLayout(toolbar);
+    vb->addWidget(m_filterRow);
     vb->addWidget(m_table);
 
     // ── Connections
@@ -109,9 +166,10 @@ DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
     connect(m_table,   &QTableWidget::cellDoubleClicked,this, &DriverListWidget::onRowDoubleClicked);
     connect(m_table,   &QTableWidget::itemSelectionChanged, this, &DriverListWidget::onSelectionChanged);
     connect(btnRefresh,&QPushButton::clicked, this, &DriverListWidget::refresh);
-    connect(m_btnUse,    &QPushButton::clicked, this, &DriverListWidget::onUseClicked);
-    connect(m_btnEdit,   &QPushButton::clicked, this, &DriverListWidget::onEditClicked);
-    connect(m_btnDelete, &QPushButton::clicked, this, &DriverListWidget::onDeleteClicked);
+    connect(m_btnUse,     &QPushButton::clicked, this, &DriverListWidget::onUseClicked);
+    connect(m_btnEdit,    &QPushButton::clicked, this, &DriverListWidget::onEditClicked);
+    connect(m_btnDelete,  &QPushButton::clicked, this, &DriverListWidget::onDeleteClicked);
+    connect(m_btnCompare, &QPushButton::clicked, this, &DriverListWidget::onCompareClicked);
     connect(btnImport, &QPushButton::clicked, this, &DriverListWidget::onImportCsv);
     connect(btnExport, &QPushButton::clicked, this, &DriverListWidget::onExportCsv);
 
@@ -129,9 +187,18 @@ DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
 void DriverListWidget::refresh()
 {
     const QString q = m_search->text().trimmed();
-    const auto records = q.isEmpty() ? m_db->allDrivers()
-                                     : m_db->searchDrivers(q);
+    auto records = q.isEmpty() ? m_db->allDrivers()
+                               : m_db->searchDrivers(q);
+    const DriverFilter f = currentFilter();
+    if (f.isActive()) {
+        QList<DriverRecord> kept;
+        kept.reserve(records.size());
+        for (const auto &r : records)
+            if (f.matches(r)) kept.append(r);
+        records = kept;
+    }
     populate(records);
+    if (f.isActive()) m_countLbl->setText(m_countLbl->text() + "  (filtered)");
 }
 
 void DriverListWidget::populate(const QList<DriverRecord> &records)
@@ -209,16 +276,133 @@ void DriverListWidget::onRowDoubleClicked(int row, int)
 
 void DriverListWidget::onSelectionChanged()
 {
-    const bool hasSelection = !m_table->selectedItems().isEmpty();
-    m_btnUse->setEnabled(hasSelection);
-    m_btnEdit->setEnabled(hasSelection);
-    m_btnDelete->setEnabled(hasSelection);
+    const int n = m_table->selectionModel()
+                ? m_table->selectionModel()->selectedRows().size() : 0;
+    m_btnUse->setEnabled(n == 1);
+    m_btnEdit->setEnabled(n == 1);
+    m_btnDelete->setEnabled(n == 1);
+    m_btnCompare->setEnabled(n >= 2 && n <= 4);
 }
 
 void DriverListWidget::onUseClicked()
 {
     const int id = selectedId();
     if (id >= 0) emit useRequested(id);
+}
+
+QDoubleSpinBox *DriverListWidget::mkFilterSpin(double max, int dec, const QString &suffix)
+{
+    auto *s = new QDoubleSpinBox;
+    s->setRange(0.0, max);
+    s->setDecimals(dec);
+    s->setSuffix(suffix);
+    s->setSpecialValueText("any");      // 0 = bound unset
+    s->setFixedWidth(86);
+    s->setKeyboardTracking(false);      // refilter on commit, not every keystroke
+    connect(s, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, [this](double) { refresh(); });
+    return s;
+}
+
+DriverFilter DriverListWidget::currentFilter() const
+{
+    auto bound = [](QDoubleSpinBox *s) -> std::optional<double> {
+        return (s && s->value() > 0.0) ? std::optional<double>(s->value())
+                                       : std::nullopt;
+    };
+    DriverFilter f;
+    f.fsMin = bound(m_fsMin);   f.fsMax = bound(m_fsMax);
+    f.qtsMin = bound(m_qtsMin); f.qtsMax = bound(m_qtsMax);
+    f.vasLMin = bound(m_vasMin); f.vasLMax = bound(m_vasMax);
+    f.reMin = bound(m_reMin);   f.reMax = bound(m_reMax);
+    return f;
+}
+
+QList<int> DriverListWidget::selectedIds() const
+{
+    QList<int> ids;
+    if (!m_table->selectionModel()) return ids;
+    const auto rows = m_table->selectionModel()->selectedRows();
+    for (const auto &idx : rows) {
+        const auto *item = m_table->item(idx.row(), C_MAKE);
+        if (item) ids.append(item->data(Qt::UserRole).toInt());
+    }
+    return ids;
+}
+
+void DriverListWidget::onCompareClicked()
+{
+    const QList<int> ids = selectedIds();
+    if (ids.size() < 2) return;
+
+    QList<DriverRecord> drivers;
+    for (int id : ids) {
+        const auto r = m_db->loadDriver(id);
+        if (r.isValid()) drivers.append(r);
+    }
+    if (drivers.size() < 2) return;
+
+    struct Row { const char *name; const char *unit; int dec;
+                 std::function<double(const DriverRecord &)> get; };
+    const QList<Row> rows = {
+        { "fs",   "Hz",  1, [](const DriverRecord &r){ return r.fs; } },
+        { "Rₑ",   "Ω",   2, [](const DriverRecord &r){ return r.Re; } },
+        { "Qms",  "",    3, [](const DriverRecord &r){ return r.Qms; } },
+        { "Qes",  "",    3, [](const DriverRecord &r){ return r.Qes; } },
+        { "Qts",  "",    3, [](const DriverRecord &r){ return r.Qts; } },
+        { "Vas",  "L",   2, [](const DriverRecord &r){ return r.Vas * 1000.0; } },
+        { "mms",  "g",   2, [](const DriverRecord &r){ return r.mms * 1000.0; } },
+        { "Cms",  "mm/N",3, [](const DriverRecord &r){ return r.Cms * 1000.0; } },
+        { "Rms",  "kg/s",3, [](const DriverRecord &r){ return r.Rms; } },
+        { "BL",   "Tm",  2, [](const DriverRecord &r){ return r.BL; } },
+        { "Sd",   "cm²", 1, [](const DriverRecord &r){ return r.Sd * 1e4; } },
+        { "Lₑ",   "mH",  3, [](const DriverRecord &r){ return r.Le * 1000.0; } },
+        { "Znom", "Ω",   0, [](const DriverRecord &r){ return r.Znom; } },
+        { "Xmax", "mm",  1, [](const DriverRecord &r){ return r.Xmax; } },
+        { "Xlim", "mm",  1, [](const DriverRecord &r){ return r.Xlim; } },
+        { "Pe",   "W",   0, [](const DriverRecord &r){ return r.Pe; } },
+        { "SPL",  "dB",  1, [](const DriverRecord &r){ return r.Spl; } },
+    };
+
+    auto *dlg = new QDialog(this);
+    dlg->setWindowTitle("Compare Drivers");
+    auto *vb = new QVBoxLayout(dlg);
+
+    auto *tbl = new QTableWidget(rows.size(), drivers.size());
+    QStringList headers;
+    for (const auto &d : drivers)
+        headers << (d.make + "\n" + d.model);
+    tbl->setHorizontalHeaderLabels(headers);
+    QStringList vheaders;
+    for (const auto &row : rows)
+        vheaders << (row.unit[0] ? QString("%1 (%2)").arg(row.name, row.unit)
+                                 : QString(row.name));
+    tbl->setVerticalHeaderLabels(vheaders);
+    tbl->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    tbl->setSelectionMode(QAbstractItemView::NoSelection);
+    tbl->setAlternatingRowColors(true);
+
+    for (int ri = 0; ri < rows.size(); ++ri) {
+        for (int ci = 0; ci < drivers.size(); ++ci) {
+            const double v = rows[ri].get(drivers[ci]);
+            auto *item = new QTableWidgetItem(
+                v > 0.0 ? QString::number(v, 'f', rows[ri].dec) : QStringLiteral("–"));
+            item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            tbl->setItem(ri, ci, item);
+        }
+    }
+    tbl->resizeColumnsToContents();
+    tbl->resizeRowsToContents();
+    vb->addWidget(tbl);
+
+    auto *bb = new QDialogButtonBox(QDialogButtonBox::Close);
+    connect(bb, &QDialogButtonBox::rejected, dlg, &QDialog::reject);
+    vb->addWidget(bb);
+
+    // Wide enough for all columns without manual stretching
+    dlg->resize(220 + 130 * drivers.size(), 560);
+    dlg->exec();
+    dlg->deleteLater();
 }
 
 void DriverListWidget::onEditClicked()
