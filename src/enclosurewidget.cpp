@@ -423,6 +423,7 @@ void EnclosureWidget::buildUi()
     m_excPlot  = new ExcursionPlot;
     m_pvPlot   = new PortVelocityPlot;
     m_zPlot    = new ImpedancePlot;
+    m_maxPlot  = new MaxSplPlot;
 
     // Helper: make a power-spinbox row (shared across Voltage, Excursion, Port Velocity tabs)
     auto mkPowerSpin = [&]() -> QDoubleSpinBox * {
@@ -610,6 +611,7 @@ void EnclosureWidget::buildUi()
     m_plotTabs->addTab(excTab,    "EXCURSION");     // index 3
     m_plotTabs->addTab(pvTab,     "PORT V");        // index 4
     m_plotTabs->addTab(m_zPlot,   "IMPEDANCE");     // index 5 (all enclosure types)
+    m_plotTabs->addTab(m_maxPlot, "MAX SPL");       // index 6 (needs driver Xmax)
     m_plotTabs->setTabEnabled(4, false);              // enabled only for vented
 
     // Bottom parameter strip
@@ -3283,6 +3285,7 @@ void EnclosureWidget::updatePlot()
     m_excPlot ->setModels(visible, visActive);
     m_pvPlot  ->setModels(visible, visActive);
     m_zPlot   ->setModels(visible, visActive);
+    m_maxPlot ->setModels(visible, visActive);
 }
 
 // ── T/S field locking ────────────────────────────────────────────

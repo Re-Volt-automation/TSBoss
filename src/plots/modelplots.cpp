@@ -1,4 +1,5 @@
 #include "modelplots.h"
+#include "modeleval.h"
 #include "portphysics.h"
 #include "bandpassphysics.h"
 #include <QFont>
@@ -667,112 +668,6 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
 VoltagePlot::VoltagePlot(QWidget *parent) : PlotBase(280, 1.0, parent) {}
 
 
-// Returns true if the model has enough data to compute impedance
-static bool hasImpedanceData(const BoxModel &m)
-{
-    if (isVented(m)) return hasPortedData(m);
-    if (isBP4(m))    return hasBP4Data(m);
-    if (isBP6(m))    return hasBP6Data(m);
-    return m.Re > 0 && m.BL > 0 && m.mms_g > 0 && m.Qms > 0
-           && m.Fc > 0 && m.Qtc > 0 && m.alpha > 0;
-}
-
-// Impedance magnitude |Z(f)|
-static double boxImpedance(const BoxModel &m, double f, double power)
-{
-    if (isVented(m))   return portedImpedance(m, f, power);
-    if (isBandpass(m)) return bandpassImpedance(m, f, power);
-    const double wc      = 2.0 * PI * m.Fc;
-    const double mms     = m.mms_g / 1000.0;
-    const double Cms_box = 1.0 / (wc * wc * mms);
-    const double Qms_c   = m.Qms * std::sqrt(m.alpha + 1.0);
-    const double Rms_box = wc * mms / Qms_c;
-    const double w       = 2.0 * PI * f;
-    const double Zm_i    = w * mms - 1.0 / (w * Cms_box);
-    const double Zm2     = Rms_box * Rms_box + Zm_i * Zm_i;
-    const double Zr      = m.Re + m.BL * m.BL * Rms_box / Zm2;
-    const double Zi      = -m.BL * m.BL * Zm_i / Zm2;
-    return std::sqrt(Zr*Zr + Zi*Zi);
-}
-
-// Impedance |Z(f)| for the whole system (all N drivers, correct for sealed/IB/vented).
-static bool hasSystemZData(const BoxModel &m)
-{
-    if (isVented(m))         return hasPortedData(m);
-    if (isBP4(m))            return hasBP4Data(m);
-    if (isBP6(m))            return hasBP6Data(m);
-    if (isIB(m)) return m.Re > 0 && m.BL > 0 && m.mms_g > 0 && m.Qms > 0 && m.Fc > 0;
-    return m.Re > 0 && m.BL > 0 && m.mms_g > 0 && m.Qms > 0 && m.Fc > 0 && m.alpha > 0;
-}
-
-static double systemImpedance(const BoxModel &m, double f, double power)
-{
-    if (isVented(m))   return portedImpedance(m, f, power);   // portedImpedance already scales for N
-    if (isBandpass(m)) return bandpassImpedance(m, f, power); // bandpassImpedance scales for N
-    const double N = m.numDrivers;
-    if (!hasSystemZData(m)) return m.Re * N;
-    // Sealed / IB: use pre-computed Fc (which already incorporates box stiffness and N*Vas).
-    // Single-driver equivalent circuit; final impedance scaled by wiring mode.
-    const double wc      = 2.0 * PI * m.Fc;
-    const double mms     = m.mms_g * 1e-3;
-    const double Cms_box = 1.0 / (wc * wc * mms);
-    const double Qms_c   = m.Qms * (isIB(m) ? 1.0 : std::sqrt(m.alpha + 1.0));
-    const double Rms_box = wc * mms / Qms_c;
-    const double w       = 2.0 * PI * f;
-    const double Zm_i    = w * mms - 1.0 / (w * Cms_box);
-    const double Zm2     = Rms_box * Rms_box + Zm_i * Zm_i;
-    const double Zr      = m.Re + m.BL * m.BL * Rms_box / Zm2;
-    const double Zi      = -m.BL * m.BL * Zm_i / Zm2;
-    const double Zsingle = std::sqrt(Zr * Zr + Zi * Zi);
-    // Series: N impedances in series. Parallel: N in parallel. Separate: per-channel = single.
-    double scale = N;
-    if      (m.wiringMode == BoxModel::WiringMode::Parallel)  scale = 1.0 / N;
-    else if (m.wiringMode == BoxModel::WiringMode::Separate)  scale = 1.0;
-    return scale * Zsingle;
-}
-
-// Cone displacement [mm peak] for a given applied power.
-// Uses the same motional-impedance circuit as VoltagePlot / boxImpedance.
-static double coneDisplacement_mm(const BoxModel &m, double f, double power)
-{
-    if (power <= 0) return 0.0;
-    const double omega = 2.0 * PI * f;
-    if (omega < 1e-10) return 0.0;
-
-    if (isVented(m)) {
-        if (!hasPortedData(m)) return 0.0;
-        const double Sd = m.Sd_cm2 * 1e-4;
-        if (Sd <= 0) return 0.0;
-        auto a = portedAmplitudes(m, f, power); // cone = Sd·v  for 1 V input
-        const double v_1V = std::abs(a.cone) / Sd;
-        const double Z = portedImpedance(m, f, power);
-        if (Z <= 0) return 0.0;
-        // V = sqrt(P·Z),  |x| = |v_1V|·V / ω
-        return v_1V * std::sqrt(power * Z) / omega * 1000.0;
-    } else if (isBandpass(m)) {
-        if (isBP6(m) ? !hasBP6Data(m) : !hasBP4Data(m)) return 0.0;
-        const double Sd = m.Sd_cm2 * 1e-4;
-        if (Sd <= 0) return 0.0;
-        auto a = bandpassAmplitudes(m, f, power);
-        const double v_1V = std::abs(a.cone) / Sd;
-        const double Z = bandpassImpedance(m, f, power);
-        if (Z <= 0) return 0.0;
-        return v_1V * std::sqrt(power * Z) / omega * 1000.0;
-    } else {
-        if (!hasSystemZData(m)) return 0.0;
-        const double wc      = 2.0 * PI * m.Fc;
-        const double mms     = m.mms_g * 1e-3;
-        const double Cms_box = 1.0 / (wc * wc * mms);
-        const double Qms_c   = m.Qms * (isIB(m) ? 1.0 : std::sqrt(m.alpha + 1.0));
-        const double Rms_box = wc * mms / Qms_c;
-        const double Zm_i    = omega * mms - 1.0 / (omega * Cms_box);
-        const double Zm_abs  = std::sqrt(Rms_box * Rms_box + Zm_i * Zm_i);
-        const double Z_elec  = systemImpedance(m, f, power);
-        if (Z_elec <= 0 || Zm_abs <= 0) return 0.0;
-        // |x| = BL · |I| / (|Zm| · ω),  |I| = sqrt(P / Z)
-        return m.BL * std::sqrt(power / Z_elec) / (Zm_abs * omega) * 1000.0;
-    }
-}
 
 void VoltagePlot::paintEvent(QPaintEvent *)
 {
@@ -987,13 +882,6 @@ void VoltagePlot::paintEvent(QPaintEvent *)
 ExcursionPlot::ExcursionPlot(QWidget *parent) : PlotBase(280, 1.0, parent) {}
 
 
-static bool hasExcursionData(const BoxModel &m)
-{
-    if (isVented(m)) return hasPortedData(m);
-    if (isBP4(m))    return hasBP4Data(m);
-    if (isBP6(m))    return hasBP6Data(m);
-    return hasSystemZData(m);
-}
 
 void ExcursionPlot::paintEvent(QPaintEvent *)
 {
@@ -1592,6 +1480,160 @@ void ImpedancePlot::paintEvent(QPaintEvent *)
             if (!std::isfinite(z)) continue;
             entries.append({m.color, i == m_activeIdx, m.name,
                             yPx(z), QString("%1 Ω").arg(z, 0, 'f', 1)});
+        }
+        drawCursorOverlay(p, area, xPx(m_cursorFreq), m_cursorFreq, entries);
+    }
+}
+// ════════════════════════════════════════════════════════════════════
+//  MaxSplPlot
+// ════════════════════════════════════════════════════════════════════
+MaxSplPlot::MaxSplPlot(QWidget *parent) : PlotBase(280, 1.0, parent) {}
+
+void MaxSplPlot::paintEvent(QPaintEvent *)
+{
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.fillRect(rect(), CLR_PAGE_BG());
+
+    const int ml = 58, mr = 16, mt = 16, mb = 42;
+    const QRectF area(ml, mt, width()-ml-mr, height()-mt-mb);
+    p.fillRect(area, CLR_PLOT_BG());
+
+    const double lfMin = std::log10(F_MIN);
+    const double lfMax = std::log10(F_MAX);
+
+    // The max-power bisection is comparatively expensive, so each curve is
+    // computed once into a point list and reused for range, draw and legend.
+    constexpr int N = 200;
+    struct Curve { int modelIdx; QVector<QPointF> pts; };   // x = f, y = dB
+    QVector<Curve> curves;
+    double yMax = -1e9, yMin = 1e9;
+    for (int mi = 0; mi < m_models.size(); ++mi) {
+        const BoxModel &m = m_models[mi];
+        if (!hasMaxSplData(m)) continue;
+        const SplContext ctx = makeSplContext(m);
+        Curve cv; cv.modelIdx = mi;
+        cv.pts.reserve(N + 1);
+        for (int i = 0; i <= N; ++i) {
+            const double f  = std::pow(10.0, lfMin + (lfMax-lfMin)*i/double(N));
+            const double db = maxSplDb(m, ctx, f, maxPowerAt(m, f));
+            if (!std::isfinite(db) || db < -20.0) continue;
+            cv.pts.append(QPointF(f, db));
+            yMax = std::max(yMax, db);
+            yMin = std::min(yMin, db);
+        }
+        if (!cv.pts.isEmpty()) curves.append(cv);
+    }
+    const bool anyValid = !curves.isEmpty();
+    if (!anyValid) { yMax = 120.0; yMin = 80.0; }
+
+    if (m_yMin.has_value() && m_yMax.has_value()) {
+        yMin = *m_yMin; yMax = *m_yMax;
+    } else {
+        yMax = std::ceil((yMax + 3.0) / 5.0) * 5.0;
+        yMin = std::floor((yMin - 3.0) / 5.0) * 5.0;
+        if (yMax - yMin < 10.0) yMax = yMin + 10.0;
+    }
+
+    auto xPx = [&](double f)  { return area.left() + area.width()*(std::log10(f)-lfMin)/(lfMax-lfMin); };
+    auto yPx = [&](double db) { return area.top()  + area.height()*(yMax-db)/(yMax-yMin); };
+
+    // Grid
+    QFont small; small.setPointSize(8); p.setFont(small);
+    p.setPen(QPen(CLR_GRID(), 1.0));
+    const double gFreqs[] = {20,30,50,70,100,200,300,500,700,1000};
+    for (double f : gFreqs)
+        p.drawLine(QPointF(xPx(f), area.top()), QPointF(xPx(f), area.bottom()));
+    for (double db = yMin; db <= yMax+0.01; db += 5.0)
+        p.drawLine(QPointF(area.left(), yPx(db)), QPointF(area.right(), yPx(db)));
+
+    // Axis labels
+    p.setPen(CLR_GREY());
+    for (double f : gFreqs) {
+        QString lbl = f>=1000 ? QString("%1k").arg(f/1000,0,'f',0) : QString::number(int(f));
+        p.drawText(QRectF(xPx(f)-20, area.bottom()+2, 40, 14), Qt::AlignHCenter, lbl);
+    }
+    for (double db = yMin; db <= yMax+0.01; db += 5.0)
+        p.drawText(QRectF(0, yPx(db)-8, area.left()-4, 16),
+                   Qt::AlignRight|Qt::AlignVCenter, QString::number(int(db)));
+
+    // Axis titles
+    p.setPen(CLR_GREY_DK());
+    p.save();
+    p.translate(14, area.center().y());
+    p.rotate(-90);
+    p.drawText(QRectF(-area.height()/2.0, -14.0, area.height(), 28.0),
+               Qt::AlignCenter, "Max SPL  (dB / 1 m, Xmax & port limited)");
+    p.restore();
+    p.drawText(QRectF(area.left(), area.bottom()+20, area.width(), 16),
+               Qt::AlignHCenter, "Frequency (Hz)");
+
+    // Axes
+    p.setPen(QPen(CLR_GREY_DK(), 1.5));
+    p.drawLine(QPointF(area.left(), area.top()),    QPointF(area.left(),  area.bottom()));
+    p.drawLine(QPointF(area.left(), area.bottom()), QPointF(area.right(), area.bottom()));
+
+    if (!anyValid) {
+        p.setPen(CLR_GREY_LT());
+        QFont f; f.setPointSize(12); f.setItalic(true); p.setFont(f);
+        p.drawText(area, Qt::AlignCenter,
+                   "Set the driver's Xmax (large-signal data) to see the SPL ceiling.");
+        return;
+    }
+
+    // Curves
+    auto drawCurve = [&](const Curve &cv, bool active) {
+        const BoxModel &m = m_models[cv.modelIdx];
+        QPainterPath path; bool first = true;
+        for (const auto &pt : cv.pts) {
+            const QPointF px(xPx(pt.x()), yPx(pt.y()));
+            if (first) { path.moveTo(px); first = false; } else path.lineTo(px);
+        }
+        QColor c = m.color; if (!active) c.setAlpha(100);
+        p.setPen(QPen(c, active ? 3.0 : 1.8));
+        p.setBrush(Qt::NoBrush);
+        p.drawPath(path);
+    };
+
+    p.setClipRect(area);
+    for (const auto &cv : curves)
+        if (cv.modelIdx != m_activeIdx) drawCurve(cv, false);
+    for (const auto &cv : curves)
+        if (cv.modelIdx == m_activeIdx) drawCurve(cv, true);
+    p.setClipping(false);
+
+    // Legend
+    {
+        QFont lf; lf.setPointSize(8); p.setFont(lf);
+        const int lx = int(area.right())-180; int ly = int(area.top())+8;
+        for (const auto &cv : curves) {
+            const BoxModel &m = m_models[cv.modelIdx];
+            bool active = (cv.modelIdx == m_activeIdx);
+            QColor c = m.color; if (!active) c.setAlpha(140);
+            p.setPen(QPen(c, active ? 2.5 : 1.5));
+            p.drawLine(QPoint(lx, ly+6), QPoint(lx+20, ly+6));
+            p.setPen(active ? CLR_GREY_DK() : CLR_GREY());
+            QFont tf; tf.setPointSize(8); tf.setBold(active); p.setFont(tf);
+            p.drawText(QRect(lx+24, ly, 150, 14), Qt::AlignLeft|Qt::AlignVCenter, m.name);
+            ly += 16;
+        }
+    }
+
+    // Cursor overlay — shows the ceiling, allowed power and the limiter
+    if (m_cursorFreq > 0) {
+        QVector<CursorEntry> entries;
+        for (const auto &cv : curves) {
+            const BoxModel &m = m_models[cv.modelIdx];
+            const SplContext ctx = makeSplContext(m);
+            const auto mp = maxPowerAt(m, m_cursorFreq);
+            const double db = maxSplDb(m, ctx, m_cursorFreq, mp);
+            if (!std::isfinite(db)) continue;
+            const QString lim = mp.limiter == MaxSplPoint::Port ? "port" : "Xmax";
+            const QString pw  = mp.pMax >= 100 ? QString::number(qRound(mp.pMax))
+                                               : QString::number(mp.pMax, 'f', 1);
+            entries.append({m.color, cv.modelIdx == m_activeIdx, m.name,
+                            yPx(db), QString("%1 dB @ %2 W (%3)").arg(db, 0, 'f', 1)
+                                     .arg(pw).arg(lim)});
         }
         drawCursorOverlay(p, area, xPx(m_cursorFreq), m_cursorFreq, entries);
     }

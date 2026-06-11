@@ -119,6 +119,12 @@ target_link_libraries(tscalculator_tests PRIVATE Qt6::Core)
 target_include_directories(tscalculator_tests PRIVATE src)
 add_test(NAME tscalculator_tests COMMAND tscalculator_tests)
 
+# Qt6::Gui for QColor in BoxModel (modeleval.h is header-only).
+add_executable(modeleval_tests tests/modeleval_tests.cpp)
+target_link_libraries(modeleval_tests PRIVATE Qt6::Core Qt6::Gui)
+target_include_directories(modeleval_tests PRIVATE src)
+add_test(NAME modeleval_tests COMMAND modeleval_tests)
+
 # Offscreen render smoke test for the plot widgets. Pulls in the widget
 # dependency closure; runs headless via QT_QPA_PLATFORM=offscreen.
 add_executable(plotrender_tests

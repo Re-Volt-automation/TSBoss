@@ -67,6 +67,17 @@ protected:
     void paintEvent(QPaintEvent *) override;
 };
 
+/// SPL ceiling vs frequency: the loudest the system can play before
+/// exceeding Xmax or the port chuffing limit. Needs driver Xmax.
+class MaxSplPlot : public PlotBase
+{
+    Q_OBJECT
+public:
+    explicit MaxSplPlot(QWidget *parent = nullptr);
+protected:
+    void paintEvent(QPaintEvent *) override;
+};
+
 // ─────────────────────────────────────────────────────────────────
 //  PlotRangeSettings – optional Y-axis overrides for each plot.
 // ─────────────────────────────────────────────────────────────────

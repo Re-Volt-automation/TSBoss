@@ -98,6 +98,7 @@ int main(int argc, char **argv)
     const QImage exc = renderPlot<ExcursionPlot>   ("ExcursionPlot",    models);
     const QImage pv  = renderPlot<PortVelocityPlot>("PortVelocityPlot", models);
     const QImage z   = renderPlot<ImpedancePlot>   ("ImpedancePlot",    models);
+    const QImage mx  = renderPlot<MaxSplPlot>      ("MaxSplPlot",       models);
 
     if (wantHashes) {
         printHash("ResponsePlot",     spl);
@@ -106,6 +107,7 @@ int main(int argc, char **argv)
         printHash("ExcursionPlot",    exc);
         printHash("PortVelocityPlot", pv);
         printHash("ImpedancePlot",    z);
+        printHash("MaxSplPlot",       mx);
     }
     if (!dumpDir.isEmpty()) {
         spl.save(dumpDir + "/ResponsePlot.png");
@@ -114,6 +116,7 @@ int main(int argc, char **argv)
         exc.save(dumpDir + "/ExcursionPlot.png");
         pv .save(dumpDir + "/PortVelocityPlot.png");
         z  .save(dumpDir + "/ImpedancePlot.png");
+        mx .save(dumpDir + "/MaxSplPlot.png");
         std::printf("PNGs written to %s\n", qPrintable(dumpDir));
     }
 

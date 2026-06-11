@@ -230,6 +230,7 @@ private:
     ExcursionPlot    *m_excPlot  = nullptr;
     PortVelocityPlot *m_pvPlot   = nullptr;
     ImpedancePlot    *m_zPlot    = nullptr;
+    MaxSplPlot       *m_maxPlot  = nullptr;
     // Alignment suggestion buttons (shown below Type combo)
     QWidget     *m_alignRow      = nullptr;
     QPushButton *m_btnBessel     = nullptr;
