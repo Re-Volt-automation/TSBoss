@@ -1133,7 +1133,9 @@ void EnclosureWidget::buildUi()
                 m_inPortInsert->setValue(0.0);
                 m_inPortInsert->setToolTip(
                     "How far the port tube protrudes into the box interior.\n"
-                    "Used to calculate volume displaced inside the enclosure.");
+                    "Affects the end correction (a fully inserted port behaves\n"
+                    "as flanged on both ends, shortening the required length)\n"
+                    "and the volume displaced inside the enclosure.");
 
                 auto *insertSliderRow = new QWidget;
                 {
