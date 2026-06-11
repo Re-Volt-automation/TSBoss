@@ -627,10 +627,10 @@ static void addResultRow(QGridLayout *g, int &row,
                          const QString &unit, QLabel *&out)
 {
     auto *sym = new QLabel("<b>" + symbol + "</b>"); sym->setMinimumWidth(40);
-    auto *nm  = new QLabel(name); nm->setStyleSheet("color:#555;");
+    auto *nm  = new QLabel(name); nm->setStyleSheet(themed("color:%text2%;"));
     out = new QLabel("–");
     out->setStyleSheet(themed("font-weight:bold; color:%text2%; font-size:10pt;"));
-    auto *un  = new QLabel(unit); un->setStyleSheet("color:#888;");
+    auto *un  = new QLabel(unit); un->setStyleSheet(themed("color:%unit%;"));
     g->addWidget(sym, row, 0);
     g->addWidget(nm,  row, 1);
     g->addWidget(out, row, 2);
@@ -654,15 +654,15 @@ ResultsPage::ResultsPage(QWidget *parent)
 
     auto *resBox = new QGroupBox("Calculated Parameters");
     resBox->setStyleSheet(themed(
-        "QGroupBox{font-weight:bold;border:1px solid #ddd;border-radius:5px;"
-        "margin-top:16px;padding:12px 6px 6px 6px;background:white;}"
+        "QGroupBox{font-weight:bold;border:1px solid %border%;border-radius:5px;"
+        "margin-top:16px;padding:12px 6px 6px 6px;background:%panel%;}"
         "QGroupBox::title{subcontrol-origin:margin;left:10px;padding:0 6px;color:%accent%;}"));
     auto *grid = new QGridLayout(resBox);
     grid->setColumnStretch(1,2); grid->setColumnStretch(2,1); grid->setColumnStretch(3,1);
     grid->setVerticalSpacing(2); grid->setHorizontalSpacing(8);
 
     auto hdr = [&](int col, const QString &t){
-        auto *l = new QLabel("<b>"+t+"</b>"); l->setStyleSheet("color:#888;font-size:8pt;");
+        auto *l = new QLabel("<b>"+t+"</b>"); l->setStyleSheet(themed("color:%muted%;font-size:8pt;"));
         grid->addWidget(l,0,col);
     };
     hdr(0,"Sym"); hdr(1,"Parameter"); hdr(2,"Value"); hdr(3,"Unit");
@@ -682,14 +682,14 @@ ResultsPage::ResultsPage(QWidget *parent)
     addResultRow(grid,row,"Lₑ","Voice-coil inductance","mH",m_lblLe);
 
     m_lblVerify = new QLabel; m_lblVerify->setTextFormat(Qt::RichText);
-    grid->addWidget(new QLabel("<span style='color:#888;font-size:8pt;'><b>√(f₁·f₂)</b></span>"),row,0);
+    grid->addWidget(new QLabel(themed("<span style='color:%muted%;font-size:8pt;'><b>√(f₁·f₂)</b></span>")),row,0);
     grid->addWidget(new QLabel("Resonance verify"),row,1);
     grid->addWidget(m_lblVerify,row,2,1,2);
 
     auto *notesBox = new QGroupBox("Notes");
     notesBox->setStyleSheet(themed(
-        "QGroupBox{font-weight:bold;border:1px solid #ddd;border-radius:5px;"
-        "margin-top:16px;padding:12px 6px 6px 6px;background:white;}"
+        "QGroupBox{font-weight:bold;border:1px solid %border%;border-radius:5px;"
+        "margin-top:16px;padding:12px 6px 6px 6px;background:%panel%;}"
         "QGroupBox::title{subcontrol-origin:margin;left:10px;padding:0 6px;color:%accent%;}"));
     auto *nb = new QVBoxLayout(notesBox);
     nb->setContentsMargins(4,2,4,4);
@@ -730,7 +730,10 @@ void ResultsPage::populateLabels(const DriverRecord &r)
     m_lblLe ->setText(fmt(r.Le*1000.0,  4));
 
     const double pct = (r.fs>0) ? 100.0*(r.fsVerify-r.fs)/r.fs : 0.0;
-    const QString col = (std::fabs(pct)<3.0) ? "#27ae60" : "#e74c3c";
+    const Theme &th = Theme::instance();
+    const QString col = (std::fabs(pct)<3.0)
+        ? (th.mode()==Theme::Mode::Light ? QStringLiteral("#15803D") : QStringLiteral("#86EFAC"))
+        : hex(th.statusError());
     m_lblVerify->setText(
         QString("<span style='color:%1'>%2 Hz  (%3%4 % deviation)</span>")
         .arg(col).arg(r.fsVerify,0,'f',2).arg(pct>=0?"+":"").arg(pct,0,'f',2));
