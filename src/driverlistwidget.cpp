@@ -1,6 +1,7 @@
 #include "driverlistwidget.h"
 #include "theme.h"
 #include "driverrecord.h"
+#include "drivercsv.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QTableWidget>
@@ -13,6 +14,7 @@
 #include <QLabel>
 #include <QFileDialog>
 #include <QMessageBox>
+#include <QShortcut>
 #include <QTextStream>
 #include <QFile>
 
@@ -112,6 +114,14 @@ DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
     connect(m_btnDelete, &QPushButton::clicked, this, &DriverListWidget::onDeleteClicked);
     connect(btnImport, &QPushButton::clicked, this, &DriverListWidget::onImportCsv);
     connect(btnExport, &QPushButton::clicked, this, &DriverListWidget::onExportCsv);
+
+    // Ctrl+F focuses the search box while this page is active
+    auto *scFind = new QShortcut(QKeySequence::Find, this);
+    scFind->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(scFind, &QShortcut::activated, this, [this] {
+        m_search->setFocus();
+        m_search->selectAll();
+    });
 
     refresh();
 }
@@ -233,30 +243,6 @@ void DriverListWidget::onDeleteClicked()
     }
 }
 
-// Parse a single CSV line, handling double-quoted fields (RFC 4180-ish)
-static QStringList parseCsvLine(const QString &line)
-{
-    QStringList fields;
-    QString cur;
-    bool inQuote = false;
-    for (int i = 0; i < line.size(); ++i) {
-        const QChar c = line[i];
-        if (inQuote) {
-            if (c == '"') {
-                // Peek: escaped quote?
-                if (i + 1 < line.size() && line[i + 1] == '"') { cur += '"'; ++i; }
-                else inQuote = false;
-            } else { cur += c; }
-        } else {
-            if      (c == '"') { inQuote = true; }
-            else if (c == ',') { fields << cur; cur.clear(); }
-            else               { cur += c; }
-        }
-    }
-    fields << cur;
-    return fields;
-}
-
 void DriverListWidget::onImportCsv()
 {
     // ── Pick file ─────────────────────────────────────────────────
@@ -269,99 +255,39 @@ void DriverListWidget::onImportCsv()
         QMessageBox::critical(this, "Import error", "Cannot open file for reading.");
         return;
     }
+    const QString text = QTextStream(&f).readAll();
 
-    QTextStream in(&f);
-
-    // ── Read and validate header ──────────────────────────────────
-    const QString header = in.readLine();
-    const QStringList cols = parseCsvLine(header);
-
-    // Build a column-name → index map (case-insensitive)
-    QMap<QString, int> colIdx;
-    for (int i = 0; i < cols.size(); ++i)
-        colIdx[cols[i].trimmed().toLower()] = i;
-
-    // Required columns (must at minimum have make + model + one result)
-    const QStringList required = {"make","model","re","fs","qts"};
-    for (const auto &req : required) {
-        if (!colIdx.contains(req)) {
-            QMessageBox::critical(this, "Import error",
-                QString("Column '%1' not found in CSV header.\n"
-                        "Expected format matches TSBoss Export CSV.").arg(req));
-            return;
-        }
+    // ── Parse (drivercsv handles quoting, multi-line fields, issues) ─
+    const auto res = drivercsv::importCsv(text);
+    if (!res.ok) {
+        QMessageBox::critical(this, "Import error", res.error);
+        return;
     }
-
-    // ── Parse data rows ───────────────────────────────────────────
-    QList<DriverRecord> records;
-    int lineNum = 1;
-    while (!in.atEnd()) {
-        ++lineNum;
-        const QString line = in.readLine().trimmed();
-        if (line.isEmpty()) continue;
-        const QStringList f = parseCsvLine(line);
-
-        auto dbl = [&](const QString &col) -> double {
-            const int i = colIdx.value(col, -1);
-            return (i >= 0 && i < f.size()) ? f[i].toDouble() : 0.0;
-        };
-        auto str = [&](const QString &col) -> QString {
-            const int i = colIdx.value(col, -1);
-            return (i >= 0 && i < f.size()) ? f[i].trimmed() : QString{};
-        };
-
-        DriverRecord r;
-        r.id           = -1;             // always insert as new
-        r.make         = str("make");
-        r.model        = str("model");
-        r.measuredBy   = str("measured_by");
-        r.notes        = str("notes");
-        const QString ds = str("date");
-        r.dateMeasured = ds.isEmpty() ? QDate::currentDate()
-                                      : QDate::fromString(ds, "yyyy-MM-dd");
-        // Raw measurements
-        r.Re     = dbl("re");
-        r.fs     = dbl("fs");
-        r.Zmax   = dbl("zmax");
-        r.f1     = dbl("f1");
-        r.f2     = dbl("f2");
-        r.deltaM = dbl("deltam_kg");
-        r.fo     = dbl("fo");
-        r.Dd     = dbl("dd_m");
-        r.Zmin   = dbl("zmin");
-        r.f3     = dbl("f3");
-        // Computed results
-        r.Z12    = dbl("z12");
-        r.R0     = dbl("r0");
-        r.Qms    = dbl("qms");
-        r.Qes    = dbl("qes");
-        r.Qts    = dbl("qts");
-        r.mms    = dbl("mms_kg");
-        r.Rms    = dbl("rms");
-        r.BL     = dbl("bl");
-        r.Cms    = dbl("cms");
-        r.Sd     = dbl("sd_m2");
-        r.Vas    = dbl("vas_m3");
-        r.Le     = dbl("le");
-        // Additional linear parameters
-        r.Znom   = dbl("znom");
-        r.fLe    = dbl("fle");
-        r.KLe    = dbl("kle");
-        // Large signal parameters
-        r.Xmax   = dbl("xmax_mm");
-        r.Xlim   = dbl("xlim_mm");
-        r.Pe     = dbl("pe");
-        r.Hg     = dbl("hg_mm");
-        r.Vd     = dbl("vd_cm3");
-
-        if (r.make.isEmpty() && r.model.isEmpty()) continue; // skip blank rows
-        records.append(r);
-    }
-
-    if (records.isEmpty()) {
+    if (res.records.isEmpty()) {
         QMessageBox::warning(this, "Import", "No valid driver rows found in the file.");
         return;
     }
+
+    // Unreadable cells would be imported as 0 — surface them, don't be silent.
+    if (!res.issues.isEmpty()) {
+        QString detail;
+        const qsizetype shown = qMin<qsizetype>(res.issues.size(), 12);
+        for (qsizetype i = 0; i < shown; ++i) {
+            const auto &is = res.issues[i];
+            detail += QString("• row %1, column '%2': \"%3\"\n")
+                      .arg(is.row).arg(is.column, is.value);
+        }
+        if (res.issues.size() > shown)
+            detail += QString("…and %1 more.\n").arg(res.issues.size() - shown);
+        const auto ans = QMessageBox::warning(this, "Import warnings",
+            QString("%1 value%2 could not be read and would be imported as 0:\n\n%3\n"
+                    "Import anyway?")
+            .arg(res.issues.size()).arg(res.issues.size() == 1 ? "" : "s").arg(detail),
+            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+        if (ans != QMessageBox::Yes) return;
+    }
+
+    QList<DriverRecord> records = res.records;
 
     // ── Ask add or overwrite ──────────────────────────────────────
     const int existing = m_db->driverCount();
@@ -401,8 +327,7 @@ void DriverListWidget::onImportCsv()
     // ── Insert records ────────────────────────────────────────────
     int imported = 0, failed = 0;
     for (auto &r : records) {
-        r.id = -1;   // force insert
-        if (m_db->saveDriver(r)) ++imported;
+        if (m_db->saveDriver(r)) ++imported;   // importCsv already set id = -1
         else                     ++failed;
     }
 
@@ -430,30 +355,7 @@ void DriverListWidget::onExportCsv()
         return;
     }
     QTextStream out(&f);
-    // Header
-    out << "id,make,model,date,measured_by,"
-           "Re,fs,Zmax,f1,f2,deltaM_kg,fo,Dd_m,Zmin,f3,"
-           "Z12,R0,Qms,Qes,Qts,mms_kg,Rms,BL,Cms,Sd_m2,Vas_m3,Le,"
-           "Znom,fLe,KLe,Xmax_mm,Xlim_mm,Pe,Hg_mm,Vd_cm3,notes\n";
-
-    for (const auto &r : m_db->allDrivers()) {
-        out << r.id << ","
-            << "\"" << r.make  << "\","
-            << "\"" << r.model << "\","
-            << r.dateMeasured.toString("yyyy-MM-dd") << ","
-            << "\"" << r.measuredBy   << "\","
-            << r.Re   << "," << r.fs   << "," << r.Zmax << ","
-            << r.f1   << "," << r.f2   << "," << r.deltaM << ","
-            << r.fo   << "," << r.Dd   << "," << r.Zmin  << "," << r.f3 << ","
-            << r.Z12  << "," << r.R0   << "," << r.Qms   << ","
-            << r.Qes  << "," << r.Qts  << "," << r.mms   << ","
-            << r.Rms  << "," << r.BL   << "," << r.Cms   << ","
-            << r.Sd   << "," << r.Vas  << "," << r.Le    << ","
-            << r.Znom << "," << r.fLe  << "," << r.KLe   << ","
-            << r.Xmax << "," << r.Xlim << "," << r.Pe    << ","
-            << r.Hg   << "," << r.Vd   << ","
-            << "\"" << QString(r.notes).replace('"','\'') << "\"\n";
-    }
+    out << drivercsv::exportCsv(m_db->allDrivers());
     QMessageBox::information(this, "Export complete",
         QString("Exported %1 drivers to:\n%2").arg(m_db->driverCount()).arg(path));
 }

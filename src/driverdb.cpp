@@ -1,6 +1,7 @@
 #include "driverdb.h"
 #include <QSqlQuery>
 #include <QSqlError>
+#include <QSet>
 #include <QVariant>
 #include <QStandardPaths>
 #include <QDir>
@@ -89,7 +90,17 @@ bool DriverDatabase::createSchema()
     }
 
     // Migrate older databases that are missing columns added after initial release.
-    // ALTER TABLE ADD COLUMN fails silently if the column already exists (we ignore that error).
+    // Only columns actually missing are added, so a genuine ALTER failure
+    // (read-only file, disk full, corruption) is reported instead of being
+    // mistaken for "duplicate column name".
+    QSet<QString> existing;
+    QSqlQuery info(m_db);
+    if (!info.exec("PRAGMA table_info(drivers)")) {
+        m_lastError = info.lastError().text();
+        return false;
+    }
+    while (info.next()) existing.insert(info.value(1).toString().toLower());
+
     static const struct { const char *col; const char *def; } kMigrations[] = {
         { "v_meas",       "REAL    DEFAULT 1.0"  },
         { "r_series",     "REAL    DEFAULT 50.0" },
@@ -109,9 +120,13 @@ bool DriverDatabase::createSchema()
         { "spl",                  "REAL    DEFAULT 0" },
     };
     for (const auto &m : kMigrations) {
+        if (existing.contains(QString(m.col).toLower())) continue;
         QSqlQuery mq(m_db);
-        mq.exec(QString("ALTER TABLE drivers ADD COLUMN %1 %2").arg(m.col, m.def));
-        // ignore return value — "duplicate column name" means it already exists
+        if (!mq.exec(QString("ALTER TABLE drivers ADD COLUMN %1 %2").arg(m.col, m.def))) {
+            m_lastError = QString("Schema migration failed (adding column '%1'): %2")
+                          .arg(m.col, mq.lastError().text());
+            return false;
+        }
     }
 
     return true;
@@ -218,13 +233,35 @@ bool DriverDatabase::deleteDriver(int id)
 
 bool DriverDatabase::clearAllDrivers()
 {
+    // Delete + sequence reset must be atomic: a partial clear would leave
+    // surviving rows with a reset id counter.
+    if (!m_db.transaction()) {
+        m_lastError = m_db.lastError().text();
+        return false;
+    }
     QSqlQuery q(m_db);
     if (!q.exec("DELETE FROM drivers")) {
         m_lastError = q.lastError().text();
+        m_db.rollback();
         return false;
     }
-    // Reset the auto-increment counter so IDs start fresh
-    q.exec("DELETE FROM sqlite_sequence WHERE name='drivers'");
+    // Reset the auto-increment counter so IDs start fresh. sqlite_sequence
+    // only exists once an AUTOINCREMENT insert has happened.
+    QSqlQuery seq(m_db);
+    seq.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sqlite_sequence'");
+    if (seq.next()) {
+        QSqlQuery reset(m_db);
+        if (!reset.exec("DELETE FROM sqlite_sequence WHERE name='drivers'")) {
+            m_lastError = reset.lastError().text();
+            m_db.rollback();
+            return false;
+        }
+    }
+    if (!m_db.commit()) {
+        m_lastError = m_db.lastError().text();
+        m_db.rollback();
+        return false;
+    }
     return true;
 }
 

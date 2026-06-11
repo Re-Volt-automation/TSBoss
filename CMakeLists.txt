@@ -24,6 +24,8 @@ set(PROJECT_SOURCES
     src/quickentrywidget.cpp
     src/driverlistwidget.h
     src/driverlistwidget.cpp
+    src/drivercsv.h
+    src/drivercsv.cpp
     src/driverdetailwidget.h
     src/driverdetailwidget.cpp
     src/datasheetentrywidget.h
@@ -88,3 +90,13 @@ add_executable(portphysics_tests tests/portphysics_tests.cpp)
 target_link_libraries(portphysics_tests PRIVATE Qt6::Core Qt6::Gui)
 target_include_directories(portphysics_tests PRIVATE src)
 add_test(NAME portphysics_tests COMMAND portphysics_tests)
+
+add_executable(drivercsv_tests tests/drivercsv_tests.cpp src/drivercsv.cpp)
+target_link_libraries(drivercsv_tests PRIVATE Qt6::Core)
+target_include_directories(drivercsv_tests PRIVATE src)
+add_test(NAME drivercsv_tests COMMAND drivercsv_tests)
+
+add_executable(driverdb_tests tests/driverdb_tests.cpp src/driverdb.cpp)
+target_link_libraries(driverdb_tests PRIVATE Qt6::Core Qt6::Sql)
+target_include_directories(driverdb_tests PRIVATE src)
+add_test(NAME driverdb_tests COMMAND driverdb_tests)
