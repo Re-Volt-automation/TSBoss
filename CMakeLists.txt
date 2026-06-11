@@ -108,3 +108,8 @@ add_executable(boxmodelio_tests tests/boxmodelio_tests.cpp src/boxmodelio.cpp)
 target_link_libraries(boxmodelio_tests PRIVATE Qt6::Core Qt6::Gui)
 target_include_directories(boxmodelio_tests PRIVATE src)
 add_test(NAME boxmodelio_tests COMMAND boxmodelio_tests)
+
+add_executable(tscalculator_tests tests/tscalculator_tests.cpp src/tscalculator.cpp)
+target_link_libraries(tscalculator_tests PRIVATE Qt6::Core)
+target_include_directories(tscalculator_tests PRIVATE src)
+add_test(NAME tscalculator_tests COMMAND tscalculator_tests)
