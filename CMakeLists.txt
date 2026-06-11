@@ -31,6 +31,8 @@ set(PROJECT_SOURCES
     src/datasheetentrywidget.h
     src/datasheetentrywidget.cpp
     src/boxmodel.h
+    src/boxmodelio.h
+    src/boxmodelio.cpp
     src/portphysics.h
     src/bandpassphysics.h
     src/enclosurewidget.h
@@ -100,3 +102,9 @@ add_executable(driverdb_tests tests/driverdb_tests.cpp src/driverdb.cpp)
 target_link_libraries(driverdb_tests PRIVATE Qt6::Core Qt6::Sql)
 target_include_directories(driverdb_tests PRIVATE src)
 add_test(NAME driverdb_tests COMMAND driverdb_tests)
+
+# Qt6::Gui for QColor in BoxModel.
+add_executable(boxmodelio_tests tests/boxmodelio_tests.cpp src/boxmodelio.cpp)
+target_link_libraries(boxmodelio_tests PRIVATE Qt6::Core Qt6::Gui)
+target_include_directories(boxmodelio_tests PRIVATE src)
+add_test(NAME boxmodelio_tests COMMAND boxmodelio_tests)

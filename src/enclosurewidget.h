@@ -254,8 +254,6 @@ private:
     void    updatePortLength();
     void    rebuildPortArrangement(bool bp6);  ///< re-home Port-tab blocks per enclosure type
     QColor  nextColor() const;
-    QString serializeModels() const;
-    void    deserializeModels(const QString &json);
     /// Build a default filename stem from the loaded models:
     /// "Nx_Brand1-Brand2" with hyphens in brand names escaped to underscores.
     /// Brands are deduplicated case-insensitively and sorted; driver IDs are
