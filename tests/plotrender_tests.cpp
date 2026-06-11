@@ -100,6 +100,16 @@ int main(int argc, char **argv)
     const QImage z   = renderPlot<ImpedancePlot>   ("ImpedancePlot",    models);
     const QImage mx  = renderPlot<MaxSplPlot>      ("MaxSplPlot",       models);
 
+    // Same models with a 24 dB/oct subsonic filter at 25 Hz engaged —
+    // SPL/GD/excursion must still render (and differ from the unfiltered set).
+    QList<BoxModel> filtered = models;
+    for (auto &m : filtered) { m.hpfOrder = 4; m.hpfFreq = 25.0; }
+    const QImage fspl = renderPlot<ResponsePlot> ("ResponsePlot+HPF",  filtered);
+    const QImage fgd  = renderPlot<GroupDelayPlot>("GroupDelayPlot+HPF", filtered);
+    const QImage fexc = renderPlot<ExcursionPlot>("ExcursionPlot+HPF", filtered);
+    check(fspl != spl, "HPF visibly changes the SPL plot");
+    check(fexc != exc, "HPF visibly changes the excursion plot");
+
     if (wantHashes) {
         printHash("ResponsePlot",     spl);
         printHash("GroupDelayPlot",   gd);
@@ -117,6 +127,9 @@ int main(int argc, char **argv)
         pv .save(dumpDir + "/PortVelocityPlot.png");
         z  .save(dumpDir + "/ImpedancePlot.png");
         mx .save(dumpDir + "/MaxSplPlot.png");
+        fspl.save(dumpDir + "/ResponsePlot_HPF.png");
+        fgd .save(dumpDir + "/GroupDelayPlot_HPF.png");
+        fexc.save(dumpDir + "/ExcursionPlot_HPF.png");
         std::printf("PNGs written to %s\n", qPrintable(dumpDir));
     }
 

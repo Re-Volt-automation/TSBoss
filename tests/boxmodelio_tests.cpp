@@ -32,6 +32,7 @@ static BoxModel makeFullModel()
     m.numDrivers = 2; m.wiringMode = BoxModel::WiringMode::Parallel;
     m.isDVC = true; m.dvcWiring = 1;
     m.addedMass_g = 15.0; m.visible = false;
+    m.hpfOrder = 4; m.hpfFreq = 22.5;
     m.color = QColor("#d97706");
     return m;
 }
@@ -75,6 +76,8 @@ int main()
                                                             "roundtrip: drivers/wiring");
         check(b.isDVC == a.isDVC && b.dvcWiring == a.dvcWiring, "roundtrip: DVC");
         check(b.addedMass_g == a.addedMass_g,               "roundtrip: added mass");
+        check(b.hpfOrder == a.hpfOrder && b.hpfFreq == a.hpfFreq,
+                                                            "roundtrip: subsonic filter");
         check(b.visible == a.visible,                       "roundtrip: visibility");
         check(b.color == a.color,                           "roundtrip: color");
     }
@@ -127,6 +130,7 @@ int main()
             check(!m.color.isValid(),                       "legacy: missing color stays invalid");
             check(m.volumeL == 40.0 && m.fb == 35.0 && m.QL == 7.0,
                                                             "legacy: chamber defaults");
+            check(m.hpfOrder == 0 && m.hpfFreq == 20.0,     "legacy: filter defaults off");
         } else {
             check(false, "legacy: model count");
         }
@@ -146,11 +150,13 @@ int main()
         obj["wiringMode"] = 7;
         obj["numPorts"]   = 0;
         obj["portWalls"]  = -2;
+        obj["hpfOrder"]   = 3;   // only 0/2/4 are meaningful
         const BoxModel m = modelFromJson(obj);
         check(m.portFlare == 2,                             "clamp: portFlare");
         check(m.wiringMode == BoxModel::WiringMode::Separate, "clamp: wiringMode to max");
         check(m.numPorts == 1,                              "clamp: numPorts floor");
         check(m.portWalls == 0,                             "clamp: portWalls floor");
+        check(m.hpfOrder == 2,                              "clamp: odd hpfOrder snaps down");
     }
 
     // ── Bad input rejected with an error ──────────────────────────

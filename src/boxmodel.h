@@ -88,6 +88,10 @@ struct BoxModel
     // Shifts fs, Qts, Qes, Qms while leaving Vas/Cms/Re/BL/Sd unchanged.
     double  addedMass_g = 0.0;
 
+    // Subsonic protection filter (Butterworth high-pass before the amp).
+    int     hpfOrder = 0;     ///< 0 = off, 2 = 12 dB/oct, 4 = 24 dB/oct
+    double  hpfFreq  = 20.0;  ///< −3 dB corner frequency [Hz]
+
     // Computed results
     double  alpha   = 0.0;
     double  Fc      = 0.0;  ///< Sealed: system resonance; Vented: echoes fb

@@ -2,6 +2,7 @@
 #include "plotsupport.h"
 #include "portphysics.h"
 #include "bandpassphysics.h"
+#include "filters.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -12,6 +13,37 @@
 //  power/SPL solver. Header-only and Qt-Widgets-free so it is
 //  unit-testable (see tests/modeleval_tests.cpp).
 // ─────────────────────────────────────────────────────────────────
+
+// ── Subsonic filter (line-level, before the amp) ──────────────────
+// Off (hpfOrder < 2) is exact unity, so models without a filter are
+// bit-identical to the pre-filter behaviour.
+
+inline filt::Cpx hpfH(const BoxModel &m, double f)
+{
+    return (m.hpfOrder >= 2) ? filt::butterworthHP(m.hpfOrder, m.hpfFreq, f)
+                             : filt::Cpx(1.0, 0.0);
+}
+
+/// Level shift [dB] the filter applies at f.
+inline double hpfDb(const BoxModel &m, double f)
+{
+    if (m.hpfOrder < 2) return 0.0;
+    return 20.0 * std::log10(std::max(std::abs(hpfH(m, f)), 1e-12));
+}
+
+/// Power reaching the driver scales by |H|².
+inline double hpfPowerScale(const BoxModel &m, double f)
+{
+    if (m.hpfOrder < 2) return 1.0;
+    const double a = std::abs(hpfH(m, f));
+    return a * a;
+}
+
+/// Group delay [ms] the filter adds.
+inline double hpfGroupDelayMs(const BoxModel &m, double f)
+{
+    return (m.hpfOrder >= 2) ? filt::groupDelayMs(m.hpfOrder, m.hpfFreq, f) : 0.0;
+}
 
 // Impedance |Z(f)| for the whole system (all N drivers, correct for sealed/IB/vented).
 inline bool hasSystemZData(const BoxModel &m)

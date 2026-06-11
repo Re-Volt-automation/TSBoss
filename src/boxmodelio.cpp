@@ -67,6 +67,8 @@ QJsonObject modelToJson(const BoxModel &m)
     obj["isDVC"]               = m.isDVC;
     obj["dvcWiring"]           = m.dvcWiring;
     obj["addedMass_g"]         = m.addedMass_g;
+    obj["hpfOrder"]            = m.hpfOrder;
+    obj["hpfFreq"]             = m.hpfFreq;
     obj["visible"]             = m.visible;
     return obj;
 }
@@ -135,6 +137,12 @@ BoxModel modelFromJson(const QJsonObject &obj)
     m.isDVC     = obj["isDVC"].toBool(false);
     m.dvcWiring = obj["dvcWiring"].toInt(0);
     m.addedMass_g = obj["addedMass_g"].toDouble(0.0);
+    // hpfOrder: only 0 / 2 / 4 are meaningful — snap anything else down.
+    {
+        const int o = obj["hpfOrder"].toInt(0);
+        m.hpfOrder = (o >= 4) ? 4 : (o >= 2) ? 2 : 0;
+    }
+    m.hpfFreq     = obj["hpfFreq"].toDouble(20.0);
     m.visible     = obj["visible"].toBool(true);
     const QString cstr = obj["color"].toString();
     m.color = cstr.isEmpty() ? QColor() : QColor(cstr);

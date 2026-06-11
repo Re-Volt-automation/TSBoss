@@ -119,6 +119,10 @@ target_link_libraries(tscalculator_tests PRIVATE Qt6::Core)
 target_include_directories(tscalculator_tests PRIVATE src)
 add_test(NAME tscalculator_tests COMMAND tscalculator_tests)
 
+add_executable(filters_tests tests/filters_tests.cpp)
+target_include_directories(filters_tests PRIVATE src)
+add_test(NAME filters_tests COMMAND filters_tests)
+
 # Qt6::Gui for QColor in BoxModel (modeleval.h is header-only).
 add_executable(modeleval_tests tests/modeleval_tests.cpp)
 target_link_libraries(modeleval_tests PRIVATE Qt6::Core Qt6::Gui)

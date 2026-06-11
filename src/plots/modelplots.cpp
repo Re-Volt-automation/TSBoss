@@ -47,7 +47,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                 const double f   = std::pow(10.0, lfMin + (lfMax - lfMin)*i/double(SPL_SCAN));
                 const double raw = portedSplRaw(m, f, mp);
                 if (raw <= 0) continue;
-                const double db  = m.spl + pwrOffset + 20.0*std::log10(raw / ref);
+                const double db  = m.spl + pwrOffset + hpfDb(m, f) + 20.0*std::log10(raw / ref);
                 if (std::isfinite(db)) { yMax = std::max(yMax, db); yMin = std::min(yMin, db); }
             }
             anyValid = true;
@@ -65,7 +65,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                 const double f   = std::pow(10.0, lfMin + (lfMax - lfMin)*i/double(SPL_SCAN));
                 const double raw = bandpassSplRaw(m, f, mp);
                 if (raw <= 0) continue;
-                const double db  = peakDb + pwrOffset + 20.0*std::log10(raw / ref);
+                const double db  = peakDb + pwrOffset + hpfDb(m, f) + 20.0*std::log10(raw / ref);
                 if (std::isfinite(db) && db > -100.0) { yMax = std::max(yMax, db); yMin = std::min(yMin, db); }
             }
             anyValid = true;
@@ -78,7 +78,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                 const double d1  = 1.0 - xsq;
                 const double den = d1*d1 + (x/m.Qtc)*(x/m.Qtc);
                 if (den <= 0) continue;
-                const double db  = m.spl + pwrOffset + 10.0*std::log10(xsq*xsq/den);
+                const double db  = m.spl + pwrOffset + hpfDb(m, f) + 10.0*std::log10(xsq*xsq/den);
                 if (std::isfinite(db) && db > -200.0) { yMax = std::max(yMax, db); yMin = std::min(yMin, db); }
             }
             anyValid = true;
@@ -169,7 +169,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                     const double f   = std::pow(10.0, lf);
                     const double raw = rawFn(m, f);
                     if (raw <= 0) continue;
-                    const double db  = m.spl + pwrOffset + 20.0*std::log10(raw / ref);
+                    const double db  = m.spl + pwrOffset + hpfDb(m, f) + 20.0*std::log10(raw / ref);
                     const QPointF pt(xPx(f), yPx(db));
                     if (first) { path.moveTo(pt); first = false; }
                     else       { path.lineTo(pt); }
@@ -220,7 +220,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                     const double f   = std::pow(10.0, lf);
                     const double raw = rawFn(m, f);
                     if (raw <= 0) continue;
-                    const double db  = peakDb + pwrOffset + 20.0*std::log10(raw / ref);
+                    const double db  = peakDb + pwrOffset + hpfDb(m, f) + 20.0*std::log10(raw / ref);
                     const QPointF pt(xPx(f), yPx(db));
                     if (first) { path.moveTo(pt); first = false; }
                     else       { path.lineTo(pt); }
@@ -261,7 +261,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                 const double d1  = 1.0-xsq;
                 const double den = d1*d1 + (x/m.Qtc)*(x/m.Qtc);
                 if (den <= 0.0) continue;
-                const double db = m.spl + pwrOffset + 10.0*std::log10(xsq*xsq/den);
+                const double db = m.spl + pwrOffset + hpfDb(m, f) + 10.0*std::log10(xsq*xsq/den);
                 const QPointF pt(xPx(f), yPx(db));
                 if (first) { curve.moveTo(pt); first = false; }
                 else       { curve.lineTo(pt); }
@@ -417,7 +417,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                 const double ref = portedSplRaw(m, 1000.0, mp);
                 if (ref <= 0) continue;
                 // Total
-                const double dbTotal = m.spl + pwrOffset + 20.0*std::log10(portedSplRaw(m, cf, mp) / ref);
+                const double dbTotal = m.spl + pwrOffset + hpfDb(m, cf) + 20.0*std::log10(portedSplRaw(m, cf, mp) / ref);
                 entries.append({m.color, active,
                                 m.name + " (total)",
                                 yPx(dbTotal), QString("%1 dB").arg(dbTotal, 0, 'f', 1)});
@@ -425,7 +425,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                 QColor cc = m.color; cc.setAlpha(active ? 200 : 120);
                 const double rawCone = portedConeSplRaw(m, cf, mp);
                 if (rawCone > 0) {
-                    const double dbCone = m.spl + pwrOffset + 20.0*std::log10(rawCone / ref);
+                    const double dbCone = m.spl + pwrOffset + hpfDb(m, cf) + 20.0*std::log10(rawCone / ref);
                     entries.append({cc, false,
                                     "  cone",
                                     yPx(dbCone), QString("%1 dB").arg(dbCone, 0, 'f', 1)});
@@ -433,7 +433,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                 // Port
                 const double rawPort = portedPortSplRaw(m, cf, mp);
                 if (rawPort > 0) {
-                    const double dbPort = m.spl + pwrOffset + 20.0*std::log10(rawPort / ref);
+                    const double dbPort = m.spl + pwrOffset + hpfDb(m, cf) + 20.0*std::log10(rawPort / ref);
                     entries.append({cc, false,
                                     "  port",
                                     yPx(dbPort), QString("%1 dB").arg(dbPort, 0, 'f', 1)});
@@ -445,7 +445,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                 const double d1  = 1.0 - xsq;
                 const double den = d1*d1 + (x/m.Qtc)*(x/m.Qtc);
                 if (den <= 0) continue;
-                const double db = m.spl + pwrOffset + 10.0*std::log10(xsq*xsq/den);
+                const double db = m.spl + pwrOffset + hpfDb(m, cf) + 10.0*std::log10(xsq*xsq/den);
                 entries.append({m.color, active, m.name,
                                 yPx(db), QString("%1 dB").arg(db, 0, 'f', 1)});
             }
@@ -481,7 +481,7 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
                 if (!hasPortedData(m)) continue;
                 for (int i = 0; i <= GD_SCAN; ++i) {
                     const double f  = std::pow(10.0, lfLo + (lfHi-lfLo)*i/double(GD_SCAN));
-                    const double gd = portedGroupDelay(m, f, 0.0 /* power: no GD power control; linear limit (Task 6: revisit) */);
+                    const double gd = portedGroupDelay(m, f, 0.0 /* linear limit */) + hpfGroupDelayMs(m, f);
                     if (std::isfinite(gd) && gd > 0) yMax = std::max(yMax, gd);
                 }
                 anyValid = true;
@@ -489,12 +489,12 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
                 if (isBP6(m) ? !hasBP6Data(m) : !hasBP4Data(m)) continue;
                 for (int i = 0; i <= GD_SCAN; ++i) {
                     const double f  = std::pow(10.0, lfLo + (lfHi-lfLo)*i/double(GD_SCAN));
-                    const double gd = bandpassGroupDelay(m, f, 0.0 /* power: no GD power control; linear limit */);
+                    const double gd = bandpassGroupDelay(m, f, 0.0 /* linear limit */) + hpfGroupDelayMs(m, f);
                     if (std::isfinite(gd) && gd > 0) yMax = std::max(yMax, gd);
                 }
                 anyValid = true;
             } else if (m.Fc > 0 && m.Qtc > 0) {
-                const double peak_ms = 1000.0 / (2.0*PI*m.Fc*m.Qtc);
+                const double peak_ms = 1000.0 / (2.0*PI*m.Fc*m.Qtc) + hpfGroupDelayMs(m, m.hpfFreq);
                 yMax = std::max(yMax, peak_ms);
                 anyValid = true;
             }
@@ -569,7 +569,7 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
             for (int i = 0; i <= 500; ++i) {
                 const double lf = lfMin + (lfMax-lfMin)*i/500.0;
                 const double f  = std::pow(10.0, lf);
-                const double gd = portedGroupDelay(m, f, 0.0 /* power: no GD power control; linear limit (Task 6: revisit) */);
+                const double gd = portedGroupDelay(m, f, 0.0 /* linear limit */) + hpfGroupDelayMs(m, f);
                 if (gd < 0 || gd > yMax*2) continue;
                 const QPointF pt(xPx(f), yPx(gd));
                 if (first) { curve.moveTo(pt); first = false; } else curve.lineTo(pt);
@@ -579,7 +579,7 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
             for (int i = 0; i <= 500; ++i) {
                 const double lf = lfMin + (lfMax-lfMin)*i/500.0;
                 const double f  = std::pow(10.0, lf);
-                const double gd = bandpassGroupDelay(m, f, 0.0 /* power: no GD power control; linear limit */);
+                const double gd = bandpassGroupDelay(m, f, 0.0 /* linear limit */) + hpfGroupDelayMs(m, f);
                 if (gd < 0 || gd > yMax*2) continue;
                 const QPointF pt(xPx(f), yPx(gd));
                 if (first) { curve.moveTo(pt); first = false; } else curve.lineTo(pt);
@@ -594,7 +594,7 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
                 const double x2 = x*x;
                 const double den = (x/m.Qtc)*(x/m.Qtc) + (1.0-x2)*(1.0-x2);
                 if (den <= 0) continue;
-                const double gd = 1000.0/wc * (1.0/m.Qtc) * (1.0+x2)/den;
+                const double gd = 1000.0/wc * (1.0/m.Qtc) * (1.0+x2)/den + hpfGroupDelayMs(m, f);
                 if (gd < 0 || gd > yMax*2) continue;
                 const QPointF pt(xPx(f), yPx(gd));
                 if (first) { curve.moveTo(pt); first = false; } else curve.lineTo(pt);
@@ -642,17 +642,17 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
             double gd;
             if (isVented(m)) {
                 if (!hasPortedData(m)) continue;
-                gd = portedGroupDelay(m, cf, 0.0 /* power: no GD power control; linear limit (Task 6: revisit) */);
+                gd = portedGroupDelay(m, cf, 0.0 /* linear limit */) + hpfGroupDelayMs(m, cf);
             } else if (isBandpass(m)) {
                 if (isBP6(m) ? !hasBP6Data(m) : !hasBP4Data(m)) continue;
-                gd = bandpassGroupDelay(m, cf, 0.0 /* power: no GD power control; linear limit */);
+                gd = bandpassGroupDelay(m, cf, 0.0 /* linear limit */) + hpfGroupDelayMs(m, cf);
             } else {
                 if (m.Fc <= 0 || m.Qtc <= 0) continue;
                 const double x  = cf/m.Fc;
                 const double x2 = x*x;
                 const double den = (x/m.Qtc)*(x/m.Qtc) + (1.0-x2)*(1.0-x2);
                 if (den <= 0) continue;
-                gd = 1000.0/(2.0*PI*m.Fc) * (1.0/m.Qtc) * (1.0+x2)/den;
+                gd = 1000.0/(2.0*PI*m.Fc) * (1.0/m.Qtc) * (1.0+x2)/den + hpfGroupDelayMs(m, cf);
             }
             if (gd < 0) continue;
             entries.append({m.color, i == m_activeIdx, m.name,
@@ -708,9 +708,10 @@ void VoltagePlot::paintEvent(QPaintEvent *)
         for (int i = 0; i <= 60; ++i) {
             const double lf = lfMin + (lfMax-lfMin)*i/60.0;
             const double f  = std::pow(10.0, lf);
-            const double Z  = systemImpedance(m, f, mp);
-            const double V  = std::sqrt(mp * Z);
-            const double I  = Z > 0 ? std::sqrt(mp / Z) : 0.0;
+            const double mpf = mp * hpfPowerScale(m, f);
+            const double Z  = systemImpedance(m, f, mpf);
+            const double V  = std::sqrt(mpf * Z);
+            const double I  = Z > 0 ? std::sqrt(mpf / Z) : 0.0;
             yMax = std::max(yMax, V);
             iMax = std::max(iMax, I);
         }
@@ -805,10 +806,11 @@ void VoltagePlot::paintEvent(QPaintEvent *)
         for (int i = 0; i <= 500; ++i) {
             const double lf = lfMin + (lfMax-lfMin)*i/500.0;
             const double f  = std::pow(10.0, lf);
-            const double Z  = systemImpedance(m, f, mp);
+            const double mpf = mp * hpfPowerScale(m, f);
+            const double Z  = systemImpedance(m, f, mpf);
             if (Z <= 0) continue;
-            const double V  = std::sqrt(mp * Z);
-            const double I  = std::sqrt(mp / Z);
+            const double V  = std::sqrt(mpf * Z);
+            const double I  = std::sqrt(mpf / Z);
             if (V <= yMax * 1.5) {
                 const QPointF pt(xPx(f), yPx(V));
                 if (vFirst) { vPath.moveTo(pt); vFirst = false; } else vPath.lineTo(pt);
@@ -860,10 +862,11 @@ void VoltagePlot::paintEvent(QPaintEvent *)
             const auto &m = m_models[i];
             if (!hasSystemZData(m)) continue;
             const double mp = perAmpPower(m);
-            const double Z = systemImpedance(m, m_cursorFreq, mp);
+            const double mpf = mp * hpfPowerScale(m, m_cursorFreq);
+            const double Z = systemImpedance(m, m_cursorFreq, mpf);
             if (Z <= 0) continue;
-            const double V = std::sqrt(mp * Z);
-            const double I = std::sqrt(mp / Z);
+            const double V = std::sqrt(mpf * Z);
+            const double I = std::sqrt(mpf / Z);
             const QString zStr = Z < 10.0 ? QString::number(Z, 'f', 1)
                                           : QString::number(qRound(Z));
             entries.append({m.color, i == m_activeIdx, m.name,
@@ -905,7 +908,7 @@ void ExcursionPlot::paintEvent(QPaintEvent *)
         const double mp = modelPower(m);
         for (int i = 0; i <= 80; ++i) {
             const double f  = std::pow(10.0, lfMin + (lfMax-lfMin)*i/80.0);
-            const double x  = coneDisplacement_mm(m, f, mp);
+            const double x  = coneDisplacement_mm(m, f, mp * hpfPowerScale(m, f));
             if (std::isfinite(x)) yMax = std::max(yMax, x);
         }
         if (m.xmax_mm > 0) yMax = std::max(yMax, m.xmax_mm);
@@ -1001,7 +1004,7 @@ void ExcursionPlot::paintEvent(QPaintEvent *)
         QPainterPath curve; bool first = true;
         for (int i = 0; i <= 500; ++i) {
             const double f = std::pow(10.0, lfMin + (lfMax-lfMin)*i/500.0);
-            const double x = coneDisplacement_mm(m, f, mp);
+            const double x = coneDisplacement_mm(m, f, mp * hpfPowerScale(m, f));
             if (!std::isfinite(x) || x > yMax * 1.5) continue;
             const QPointF pt(xPx(f), yPx(x));
             if (first) { curve.moveTo(pt); first = false; } else curve.lineTo(pt);
@@ -1054,7 +1057,7 @@ void ExcursionPlot::paintEvent(QPaintEvent *)
         for (int i = 0; i < m_models.size(); ++i) {
             const auto &m = m_models[i];
             if (!hasExcursionData(m)) continue;
-            const double x = coneDisplacement_mm(m, m_cursorFreq, modelPower(m));
+            const double x = coneDisplacement_mm(m, m_cursorFreq, modelPower(m) * hpfPowerScale(m, m_cursorFreq));
             if (!std::isfinite(x)) continue;
             QString valStr = QString("%1 mm").arg(x, 0, 'f', 2);
             if (m.xmax_mm > 0 && x > 0)
@@ -1153,7 +1156,7 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
         const double mp = modelPower(m);
         for (int i = 0; i <= 80; ++i) {
             const double f = std::pow(10.0, lfMin + (lfMax-lfMin)*i/80.0);
-            const double v = pvVelocity(m, f, mp, cv.kind);
+            const double v = pvVelocity(m, f, mp * hpfPowerScale(m, f), cv.kind);
             if (std::isfinite(v)) yMax = std::max(yMax, v);
         }
     }
@@ -1251,7 +1254,7 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
         QPainterPath curve; bool first = true;
         for (int i = 0; i <= 500; ++i) {
             const double f = std::pow(10.0, lfMin + (lfMax-lfMin)*i/500.0);
-            const double v = pvVelocity(m, f, mp, cv.kind);
+            const double v = pvVelocity(m, f, mp * hpfPowerScale(m, f), cv.kind);
             if (!std::isfinite(v)) continue;
             const QPointF pt(xPx(f), yPx(v));
             if (first) { curve.moveTo(pt); first = false; } else curve.lineTo(pt);
@@ -1291,7 +1294,7 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
         QVector<CursorEntry> entries;
         for (const auto &cv : curves) {
             const BoxModel &m = m_models[cv.modelIdx];
-            const double v = pvVelocity(m, m_cursorFreq, modelPower(m), cv.kind);
+            const double v = pvVelocity(m, m_cursorFreq, modelPower(m) * hpfPowerScale(m, m_cursorFreq), cv.kind);
             if (!std::isfinite(v)) continue;
             entries.append({m.color, cv.modelIdx == m_activeIdx, m.name + cv.suffix,
                             yPx(v), QString("%1 m/s").arg(v, 0, 'f', 2)});

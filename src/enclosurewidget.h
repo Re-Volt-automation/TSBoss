@@ -117,6 +117,8 @@ private:
     QDoubleSpinBox    *m_inQes  = nullptr;
     QDoubleSpinBox    *m_inAddedMass     = nullptr;
     QLabel            *m_addedMassEffLbl = nullptr;
+    QComboBox         *m_hpfOrder        = nullptr;  ///< subsonic filter: Off / 12 / 24 dB/oct
+    QDoubleSpinBox    *m_hpfFreq         = nullptr;  ///< subsonic corner frequency [Hz]
     QDoubleSpinBox    *m_volume   = nullptr;
     QLabel            *m_volLabel = nullptr;   ///< "Box Vol:" label — hidden for IB
     QLabel            *m_ibInfinityLbl = nullptr; ///< "∞" big label, shown when IB selected

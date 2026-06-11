@@ -700,6 +700,28 @@ void EnclosureWidget::buildUi()
             "color:#7DD3FC; font-family:'IBM Plex Mono',monospace; font-size:8pt;");
         m_addedMassEffLbl->setVisible(false);
 
+        // Subsonic filter row (Butterworth high-pass before the amp)
+        auto *hpfRow = new QHBoxLayout;
+        hpfRow->setSpacing(4);
+        auto *hpfLbl = mkFormLabel("Subsonic:");
+        hpfLbl->setToolTip(
+            "High-pass protection filter ahead of the amplifier.\n"
+            "Reduces excursion and port velocity below the corner;\n"
+            "SPL, excursion, group delay and power plots reflect it.\n"
+            "(Max SPL is unaffected — the physical ceiling stays the same.)");
+        hpfRow->addWidget(hpfLbl);
+        m_hpfOrder = new QComboBox;
+        m_hpfOrder->addItems({"Off", "12 dB/oct", "24 dB/oct"});
+        m_hpfOrder->setToolTip(hpfLbl->toolTip());
+        hpfRow->addWidget(m_hpfOrder);
+        m_hpfFreq = mkParamSpin(5.0, 120.0, 1, 1.0, " Hz");
+        m_hpfFreq->setValue(20.0);
+        m_hpfFreq->setFixedWidth(82);
+        m_hpfFreq->setEnabled(false);
+        m_hpfFreq->setToolTip("Filter corner (−3 dB) frequency");
+        hpfRow->addWidget(m_hpfFreq);
+        hpfRow->addStretch();
+
         // Alignment buttons (visible based on enclosure type)
         auto mkAlignBtn = [](const QString &t) {
             auto *b = new QPushButton(t);
@@ -743,6 +765,7 @@ void EnclosureWidget::buildUi()
         col->addWidget(m_vcTypeLbl);
         col->addLayout(amRow);
         col->addWidget(m_addedMassEffLbl);
+        col->addLayout(hpfRow);
         col->addWidget(m_btnBessel);
         col->addWidget(m_btnB2);
         col->addWidget(m_btnB4);
@@ -761,6 +784,13 @@ void EnclosureWidget::buildUi()
         connect(m_numDrivers, QOverload<int>::of(&QSpinBox::valueChanged),
                 this, [this](int){ onParamChanged(); });
         connect(m_inAddedMass, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+                this, &EnclosureWidget::onParamChanged);
+        connect(m_hpfOrder, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int idx) {
+            if (m_hpfFreq) m_hpfFreq->setEnabled(idx > 0);
+            onParamChanged();
+        });
+        connect(m_hpfFreq, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
                 this, &EnclosureWidget::onParamChanged);
     }
 
@@ -2733,6 +2763,8 @@ void EnclosureWidget::onParamChanged()
     if (m_inPortInsert)     model.portInsertDepth_mm      = m_inPortInsert->value();
     if (m_inPortBraceSurf)  model.portExtraSurfArea_cm2   = m_inPortBraceSurf->value();
     if (m_inAddedMass)      model.addedMass_g             = m_inAddedMass->value();
+    if (m_hpfOrder)         model.hpfOrder                = m_hpfOrder->currentIndex() * 2;
+    if (m_hpfFreq)          model.hpfFreq                 = m_hpfFreq->value();
     // BP6 front port geometry
     if (isBP6(model)) {
         if (m_portFrontShape) model.portFrontShape = m_portFrontShape->currentIndex();
@@ -2796,6 +2828,17 @@ void EnclosureWidget::loadModelIntoFields(int index)
         m_inAddedMass->blockSignals(true);
         m_inAddedMass->setValue(model.addedMass_g);
         m_inAddedMass->blockSignals(false);
+    }
+    if (m_hpfOrder) {
+        m_hpfOrder->blockSignals(true);
+        m_hpfOrder->setCurrentIndex(model.hpfOrder / 2);   // 0/2/4 -> 0/1/2
+        m_hpfOrder->blockSignals(false);
+    }
+    if (m_hpfFreq) {
+        m_hpfFreq->blockSignals(true);
+        m_hpfFreq->setValue(model.hpfFreq);
+        m_hpfFreq->setEnabled(model.hpfOrder >= 2);
+        m_hpfFreq->blockSignals(false);
     }
     if (m_addedMassEffLbl) {
         if (model.addedMass_g > 0.0 && model.mms_g > 0.0 && model.fs > 0.0) {
@@ -3052,6 +3095,8 @@ void EnclosureWidget::clearFields()
         m_inAddedMass->setValue(0.0);
         m_inAddedMass->blockSignals(false);
     }
+    if (m_hpfOrder) { m_hpfOrder->blockSignals(true); m_hpfOrder->setCurrentIndex(0); m_hpfOrder->blockSignals(false); }
+    if (m_hpfFreq)  { m_hpfFreq->blockSignals(true);  m_hpfFreq->setValue(20.0); m_hpfFreq->setEnabled(false); m_hpfFreq->blockSignals(false); }
     if (m_addedMassEffLbl) m_addedMassEffLbl->setVisible(false);
     if (m_encType)  { m_encType->blockSignals(true); m_encType->setCurrentIndex(0); m_encType->blockSignals(false); }
     if (m_volLabel) m_volLabel->setVisible(true);
