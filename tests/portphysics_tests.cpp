@@ -1,5 +1,6 @@
 #include "portphysics.h"
 #include "bandpassphysics.h"
+#include "bandpassalign.h"
 #include "diagrams/portdiagram.h"
 #include <cstdio>
 #include <cmath>
@@ -209,6 +210,79 @@ int main() {
         const double us = pp::bandpassSolve(sharp,  sharp.fbFront,  2000.0).uFront;
         const double uf = pp::bandpassSolve(flared, flared.fbFront, 2000.0).uFront;
         check(uf >= us - 1e-9, "flared front port velocity >= sharp at high power");
+    }
+
+    // Maximally-flat BP4 alignment: rear pinned at Qbc=1/√2, symmetric front
+    // (Vf=Vr), front tuning refined for the flattest passband. A single-reflex
+    // BP4 has inherent passband ripple, so "flat" here means ~1.5-1.7 dB for this
+    // driver (much flatter than an arbitrary box, not as flat as a sealed B2).
+    {
+        BoxModel d = makeBP4();
+        d.Vas_L = 50.0;                       // makeModel() leaves Vas unset
+        const pp::BP4FlatResult r = pp::bp4MaxFlat(d);
+        check(r.ok, "BP4 max-flat: ok for Qts < 0.707");
+
+        // Rear volume must satisfy the Butterworth sealed anchor Qbc = 1/√2.
+        constexpr double Qbc = 0.70710678;
+        const double alphaR = (Qbc / d.Qts) * (Qbc / d.Qts) - 1.0;
+        const double VrExpect = d.Vas_L / alphaR;
+        const double Fc = d.fs * (Qbc / d.Qts);
+        check(std::abs(r.Vr_L - VrExpect) <= 1e-6 * VrExpect,
+              "BP4 max-flat: rear volume matches Qbc=0.707 anchor");
+        check(std::abs(r.Vf_L - r.Vr_L) <= 1e-9, "BP4 max-flat: symmetric chambers (Vf=Vr)");
+
+        BoxModel t = d;
+        t.volumeL = r.Vr_L; t.volumeFront_L = r.Vf_L; t.fbFront = r.fbFront;
+        const pp::BPResponse p = pp::bandpassResponse(t);
+        const double bw = p.f3High / p.f3Low;
+        const double f0 = std::sqrt(p.f3Low * p.f3High);
+        std::printf("     BP4 flat: Vr=%.1f L Vf=%.1f L fb=%.1f Hz | "
+                    "f3=%.1f-%.1f Hz bw=%.2f ripple=%.3f dB (Fc=%.1f f0/Fc=%.2f)\n",
+                    r.Vr_L, r.Vf_L, r.fbFront, p.f3Low, p.f3High, bw, p.rippleDb, Fc, f0/Fc);
+        check(p.valid, "BP4 max-flat: passband is valid");
+        check(p.rippleDb < 1.8, "BP4 max-flat: interior ripple < 1.8 dB");
+        check(p.f3Low < Fc && Fc < p.f3High, "BP4 max-flat: passband brackets Fc");
+        check(bw > 1.5 && bw < 3.0, "BP4 max-flat: controlled (~octave) bandwidth");
+
+        // Out-of-range Qts must be rejected.
+        BoxModel hi = d; hi.Qts = 0.9;
+        check(!pp::bp4MaxFlat(hi).ok, "BP4 max-flat: rejects Qts >= 0.707");
+    }
+
+    // Maximally-flat BP6 alignment: dual-reflex (both vented), symmetric volumes,
+    // rear port tuned low + front high for the flattest controlled passband. The
+    // extra DOF lets BP6 beat BP4 on flatness (~1.2 dB here vs ~1.6 dB).
+    {
+        BoxModel d = makeBP6();
+        d.Vas_L = 50.0;
+        const pp::BP6FlatResult r = pp::bp6MaxFlat(d);
+        check(r.ok, "BP6 max-flat: ok for Qts < 0.707");
+
+        constexpr double Qbc = 0.70710678;
+        const double alphaR = (Qbc / d.Qts) * (Qbc / d.Qts) - 1.0;
+        const double VrExpect = d.Vas_L / alphaR;
+        const double Fc = d.fs * (Qbc / d.Qts);
+        check(std::abs(r.Vr_L - VrExpect) <= 1e-6 * VrExpect,
+              "BP6 max-flat: rear volume matches Qbc=0.707 anchor");
+        check(std::abs(r.Vf_L - r.Vr_L) <= 1e-9, "BP6 max-flat: symmetric chambers (Vf=Vr)");
+        check(r.fbRear < r.fbFront, "BP6 max-flat: rear tuned below front (dual-reflex)");
+
+        BoxModel t = d;
+        t.volumeL = r.Vr_L; t.fb = r.fbRear; t.volumeFront_L = r.Vf_L; t.fbFront = r.fbFront;
+        const pp::BPResponse p = pp::bandpassResponse(t);
+        const double bw = p.f3High / p.f3Low;
+        const double f0 = std::sqrt(p.f3Low * p.f3High);
+        std::printf("     BP6 flat: Vr=%.1f L fbR=%.1f Hz Vf=%.1f L fbF=%.1f Hz | "
+                    "f3=%.1f-%.1f Hz bw=%.2f ripple=%.3f dB (Fc=%.1f f0/Fc=%.2f)\n",
+                    r.Vr_L, r.fbRear, r.Vf_L, r.fbFront, p.f3Low, p.f3High, bw,
+                    p.rippleDb, Fc, f0 / Fc);
+        check(p.valid, "BP6 max-flat: passband is valid");
+        check(p.rippleDb < 1.5, "BP6 max-flat: interior ripple < 1.5 dB");
+        check(p.f3Low < Fc && Fc < p.f3High, "BP6 max-flat: passband brackets Fc");
+        check(bw > 1.5 && bw < 3.0, "BP6 max-flat: controlled (~octave) bandwidth");
+
+        BoxModel hi = d; hi.Qts = 0.9;
+        check(!pp::bp6MaxFlat(hi).ok, "BP6 max-flat: rejects Qts >= 0.707");
     }
 
     return g_failures == 0 ? 0 : 1;

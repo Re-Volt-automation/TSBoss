@@ -1,6 +1,7 @@
 #include "enclosurewidget.h"
 #include "portphysics.h"
 #include "bandpassphysics.h"
+#include "bandpassalign.h"
 #include "tscalculator.h"
 #include "diagrams/portdiagram.h"
 #include "noscrollspinbox.h"
@@ -29,6 +30,7 @@
 #include <QColor>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <QShortcut>
 #include <QDialog>
 #include <QFileDialog>
 #include <QColorDialog>
@@ -144,7 +146,16 @@ static BPMetrics bandpassMetrics(const BoxModel &m)
         if (s > peak) { peak = s; fPeak = f; }
     }
     if (peak <= 0.0) return out;
-    out.peakDb = 20.0 * std::log10(peak);
+    // Calibrate the raw volume-acceleration peak (ω·|Ua|, per 1 V) to a true
+    // 1 W / 1 m half-space SPL, so the bandpass curve lands on the same dB scale
+    // as the sealed/vented anchor (SPL_REF_DB + 10·log10 η).  The +10·log10(Zin)
+    // term converts the 1 V amplitude to the 1 W reference; K is the standard
+    // volume-acceleration→pressure constant 20·log10(ρ/(2π·20 µPa)) ≈ 79.6 dB.
+    // (Verified against a vented box at 1 kHz: reproduces spl_ref to ~0.5 dB.)
+    const double Zin = bandpassImpedance(m, fPeak, 0.0);
+    const double K   = 20.0 * std::log10(RHO / (2.0 * PI * 20.0e-6));
+    out.peakDb = 20.0 * std::log10(peak)
+               + 10.0 * std::log10(std::max(Zin, 1e-9)) + K;
     const double target = peak * std::pow(10.0, -3.0/20.0);
     // Search f3Low: below fPeak, going up from 1 Hz
     {
@@ -1853,6 +1864,14 @@ EnclosureWidget::EnclosureWidget(DriverDatabase *db, QWidget *parent)
     connect(&Theme::instance(), &Theme::themeChanged, this, [this] {
         if (m_tsLocked) lockTsFields(); else unlockTsFields();
     });
+
+    // Project save/load — active only while this page has focus
+    auto *scSave = new QShortcut(QKeySequence::Save, this);     // Ctrl+S
+    scSave->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(scSave, &QShortcut::activated, this, &EnclosureWidget::onSaveProject);
+    auto *scOpen = new QShortcut(QKeySequence::Open, this);     // Ctrl+O
+    scOpen->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(scOpen, &QShortcut::activated, this, &EnclosureWidget::onLoadProject);
 }
 
 void EnclosureWidget::applyPerDriverMode(bool on)
@@ -2299,10 +2318,16 @@ void EnclosureWidget::buildUi()
         m_btnBessel = mkAlignBtn("Bessel");
         m_btnB2     = mkAlignBtn("Butterworth");
         m_btnB4     = mkAlignBtn("B4 vented");
+        m_btnBP4    = mkAlignBtn("BP4 flat");
+        m_btnBP6    = mkAlignBtn("BP6 flat");
         m_btnB4->setVisible(false);
+        m_btnBP4->setVisible(false);
+        m_btnBP6->setVisible(false);
         connect(m_btnBessel, &QPushButton::clicked, this, &EnclosureWidget::onAlignBessel);
         connect(m_btnB2,     &QPushButton::clicked, this, &EnclosureWidget::onAlignB2);
         connect(m_btnB4,     &QPushButton::clicked, this, &EnclosureWidget::onAlignB4);
+        connect(m_btnBP4,    &QPushButton::clicked, this, &EnclosureWidget::onAlignBP4Flat);
+        connect(m_btnBP6,    &QPushButton::clicked, this, &EnclosureWidget::onAlignBP6Flat);
 
         // Recommended sealed enclosure label (visible when sealed type selected)
         m_lblOptSealed = new QLabel;
@@ -2322,6 +2347,8 @@ void EnclosureWidget::buildUi()
         col->addWidget(m_btnBessel);
         col->addWidget(m_btnB2);
         col->addWidget(m_btnB4);
+        col->addWidget(m_btnBP4);
+        col->addWidget(m_btnBP6);
         col->addWidget(m_lblOptSealed);
         col->addStretch();
         paramMain->addLayout(col);
@@ -3640,6 +3667,8 @@ void EnclosureWidget::onEncTypeChanged(int index)
     if (m_btnBessel) m_btnBessel->setVisible(sealed);
     if (m_btnB2)     m_btnB2    ->setVisible(sealed);
     if (m_btnB4)     m_btnB4    ->setVisible(vented);
+    if (m_btnBP4)    m_btnBP4   ->setVisible(bp4);
+    if (m_btnBP6)    m_btnBP6   ->setVisible(bp6);
     if (m_paramTabs) {
         m_paramTabs->setTabEnabled(2, ported);
         if (!ported && m_paramTabs->currentIndex() == 2)
@@ -3746,6 +3775,76 @@ void EnclosureWidget::onAlignB4()
     applyVolumeToModel(this, m, m_volume, Vb);
     m.fb = fb;
     if (m_inFb) { m_inFb->blockSignals(true); m_inFb->setValue(fb); m_inFb->blockSignals(false); }
+    recalculate(m_activeIdx); updateModelList(); updatePlot();
+}
+
+void EnclosureWidget::onAlignBP4Flat()
+{
+    // Maximally-flat 4th-order bandpass: pin the rear sealed chamber at
+    // Butterworth loading (Qbc = 1/√2) and refine the vented front chamber for
+    // the flattest passband. Fills rear volume, front volume and front tuning;
+    // the user can tweak any of them afterward.
+    if (m_activeIdx < 0 || m_activeIdx >= m_models.size()) return;
+    auto &m = m_models[m_activeIdx];
+
+    const pp::BP4FlatResult res = pp::bp4MaxFlat(m);
+    if (!res.ok) {
+        QMessageBox::information(this, "BP4 flat alignment",
+            QString("Maximally-flat BP4 needs valid driver fs/Vas and Qts < 0.707 "
+                    "(current Qts = %1).").arg(m.Qts, 0, 'f', 3));
+        return;
+    }
+
+    m.volumeL       = res.Vr_L;
+    m.volumeFront_L = res.Vf_L;
+    m.fbFront       = res.fbFront;
+
+    auto setSpin = [](QDoubleSpinBox *s, double v) {
+        if (!s) return;
+        s->blockSignals(true); s->setValue(v); s->blockSignals(false);
+    };
+    setSpin(m_volume,       res.Vr_L);       // rear sealed chamber
+    setSpin(m_volumeFront,  res.Vf_L);       // front vented chamber
+    setSpin(m_inFbFront,    res.fbFront);    // front tuning (authoritative)
+    setSpin(m_inFb,         res.fbFront);    // Port-tab mirror (BP4 "Front fb:")
+    setSpin(m_inFbFrontPort, res.fbFront);   // front-port section mirror
+
+    recalculate(m_activeIdx); updateModelList(); updatePlot();
+}
+
+void EnclosureWidget::onAlignBP6Flat()
+{
+    // Maximally-flat 6th-order bandpass: both chambers pinned to Butterworth
+    // loading (Qbc = 1/√2, symmetric Vf = Vr) and the two port tunings refined
+    // for the flattest passband (rear low, front high). Fills both volumes and
+    // both tunings; the user can tweak any of them afterward.
+    if (m_activeIdx < 0 || m_activeIdx >= m_models.size()) return;
+    auto &m = m_models[m_activeIdx];
+
+    const pp::BP6FlatResult res = pp::bp6MaxFlat(m);
+    if (!res.ok) {
+        QMessageBox::information(this, "BP6 flat alignment",
+            QString("Maximally-flat BP6 needs valid driver fs/Vas and Qts < 0.707 "
+                    "(current Qts = %1).").arg(m.Qts, 0, 'f', 3));
+        return;
+    }
+
+    m.volumeL       = res.Vr_L;
+    m.volumeFront_L = res.Vf_L;
+    m.fb            = res.fbRear;
+    m.fbFront       = res.fbFront;
+
+    auto setSpin = [](QDoubleSpinBox *s, double v) {
+        if (!s) return;
+        s->blockSignals(true); s->setValue(v); s->blockSignals(false);
+    };
+    setSpin(m_volume,       res.Vr_L);       // rear vented chamber
+    setSpin(m_volumeFront,  res.Vf_L);       // front vented chamber
+    setSpin(m_inFbRearBp,   res.fbRear);     // rear tuning (authoritative)
+    setSpin(m_inFb,         res.fbRear);     // Port-tab mirror (BP6 "fb:" = rear)
+    setSpin(m_inFbFront,    res.fbFront);    // front tuning (authoritative)
+    setSpin(m_inFbFrontPort, res.fbFront);   // front-port section mirror
+
     recalculate(m_activeIdx); updateModelList(); updatePlot();
 }
 

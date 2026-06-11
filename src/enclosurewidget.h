@@ -222,6 +222,8 @@ private slots:
     void onAlignBessel();
     void onAlignB2();
     void onAlignB4();
+    void onAlignBP4Flat();
+    void onAlignBP6Flat();
 
     void onPortShapeChanged(int index);
     void onViewDriverParams();
@@ -401,6 +403,8 @@ private:
     QPushButton *m_btnBessel     = nullptr;
     QPushButton *m_btnB2         = nullptr;
     QPushButton *m_btnB4         = nullptr;
+    QPushButton *m_btnBP4        = nullptr;
+    QPushButton *m_btnBP6        = nullptr;
     QLabel      *m_lblOptSealed  = nullptr;
     QDoubleSpinBox   *m_power     = nullptr;
     QDoubleSpinBox   *m_excPower  = nullptr;
