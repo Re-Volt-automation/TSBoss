@@ -113,3 +113,22 @@ add_executable(tscalculator_tests tests/tscalculator_tests.cpp src/tscalculator.
 target_link_libraries(tscalculator_tests PRIVATE Qt6::Core)
 target_include_directories(tscalculator_tests PRIVATE src)
 add_test(NAME tscalculator_tests COMMAND tscalculator_tests)
+
+# Offscreen render smoke test for the plot widgets. Pulls in the widget
+# dependency closure; runs headless via QT_QPA_PLATFORM=offscreen.
+add_executable(plotrender_tests
+    tests/plotrender_tests.cpp
+    src/enclosurewidget.cpp
+    src/boxmodelio.cpp
+    src/tscalculator.cpp
+    src/driverdb.cpp
+    src/driverdetailwidget.cpp
+    src/theme.cpp
+    src/pdfreport.cpp
+    src/diagrams/diagrampainter.cpp
+    src/diagrams/diagramview.cpp
+    src/diagrams/portdiagram.cpp
+)
+target_link_libraries(plotrender_tests PRIVATE Qt6::Widgets Qt6::Sql Qt6::PrintSupport)
+target_include_directories(plotrender_tests PRIVATE src)
+add_test(NAME plotrender_tests COMMAND plotrender_tests)
