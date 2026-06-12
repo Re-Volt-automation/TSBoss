@@ -30,6 +30,7 @@ static QDoubleSpinBox *mkSpin(double lo, double hi, int dec,
     s->setRange(lo,hi); s->setDecimals(dec);
     s->setSingleStep(step); s->setSuffix(sfx);
     s->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    if (lo <= 0.0) s->setSpecialValueText("—");   // 0 = not entered yet
     return s;
 }
 
@@ -67,9 +68,9 @@ static void addResRow(QGridLayout *g, int &row,
                       const QString &unit, QLabel *&out)
 {
     auto *s = new QLabel("<b>"+sym+"</b>"); s->setStyleSheet(themed("color:%text2%;"));
-    auto *n = new QLabel(name);             n->setStyleSheet("color:#555;");
+    auto *n = new QLabel(name);             n->setStyleSheet(themed("color:%muted%;"));
     out = mkResLbl();
-    auto *u = new QLabel(unit);             u->setStyleSheet("color:#888;");
+    auto *u = new QLabel(unit);             u->setStyleSheet(themed("color:%unit%;"));
     g->addWidget(s,  row, 0);
     g->addWidget(n,  row, 1);
     g->addWidget(out,row, 2);
@@ -109,7 +110,7 @@ void QuickEntryWidget::buildUi()
         "Enter all values. Voltage hints appear as you type. "
         "Click <b>Calculate</b> to preview results, then <b>Save</b>.");
     sub->setWordWrap(true);
-    sub->setStyleSheet("color:#555; margin-bottom:4px;");
+    sub->setStyleSheet(themed("color:%muted%; margin-bottom:4px;"));
     vbox->addWidget(sub);
 
     // ── Identity ─────────────────────────────────────────────────
@@ -143,9 +144,9 @@ void QuickEntryWidget::buildUi()
         m_rbRms = new QRadioButton("RMS  (true-RMS meter / oscilloscope rms mode)");
         m_rbPp  = new QRadioButton("Peak-to-peak  (oscilloscope Vpp mode)");
         m_rbRms->setChecked(true);
-        const QString rbStyle =
-            "QRadioButton { color:#3a3a3a; padding:4px 8px; border-radius:4px; }"
-            "QRadioButton:checked { background:#6b2a40; color:white; font-weight:bold; }";
+        const QString rbStyle = themed(
+            "QRadioButton { color:%text2%; padding:4px 8px; border-radius:4px; }"
+            "QRadioButton:checked { background:%accent%; color:%onAccent%; font-weight:bold; }");
         m_rbRms->setStyleSheet(rbStyle);
         m_rbPp->setStyleSheet(rbStyle);
 
@@ -156,7 +157,8 @@ void QuickEntryWidget::buildUi()
         addRow(form, "Applied voltage V:",    m_vmeas);
         auto *vbMode = new QVBoxLayout;
         vbMode->addWidget(new QLabel(
-            "<span style='color:#3a3a3a;font-weight:bold;'>Voltage format on your instrument:</span>"));
+            QString("<span style='color:%1;font-weight:bold;'>Voltage format on your instrument:</span>")
+                .arg(hex(Theme::instance().textSecondary()))));
         vbMode->addWidget(m_rbRms);
         vbMode->addWidget(m_rbPp);
         form->addRow(vbMode);
@@ -188,9 +190,9 @@ void QuickEntryWidget::buildUi()
         m_rbDVC = new QRadioButton("DVC – Dual Voice Coil");
         m_rbSVC->setChecked(true);
 
-        const QString rbStyle =
-            "QRadioButton { color:#3a3a3a; padding:3px 6px; border-radius:4px; }"
-            "QRadioButton:checked { background:#6b2a40; color:white; font-weight:bold; }";
+        const QString rbStyle = themed(
+            "QRadioButton { color:%text2%; padding:3px 6px; border-radius:4px; }"
+            "QRadioButton:checked { background:%accent%; color:%onAccent%; font-weight:bold; }");
         m_rbSVC->setStyleSheet(rbStyle);
         m_rbDVC->setStyleSheet(rbStyle);
 
@@ -230,10 +232,10 @@ void QuickEntryWidget::buildUi()
         auto *box  = new QGroupBox("Step 1 – DC Resistance");
         auto *form = new QFormLayout(box);
         form->setLabelAlignment(Qt::AlignRight);
-        m_Re = mkSpin(0.10,200.0,3,0.01," Ω");
+        m_Re = mkSpin(0.0,200.0,3,0.01," Ω");
         addRow(form,"Rₑ – voice coil DC resistance:", m_Re);
         auto *hint = mkFormLabel("4-wire ohmmeter, range 0–20 Ω, accuracy ±0.1 Ω or better.");
-        hint->setStyleSheet("color:#666; font-size:8pt; font-style:italic;");
+        hint->setStyleSheet(themed("color:%muted%; font-size:8pt; font-style:italic;"));
         form->addRow(hint);
         connect(m_Re, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
                 this, &QuickEntryWidget::updateFreeAirHints);
@@ -246,10 +248,10 @@ void QuickEntryWidget::buildUi()
         auto *form = new QFormLayout(box);
         form->setLabelAlignment(Qt::AlignRight); form->setSpacing(8);
 
-        m_fs     = mkSpin(1.0,  2000.0, 2, 0.1,  " Hz");
-        m_Vpeak  = mkSpin(0.001, 50.0, 4, 0.001, " V");
-        m_f1     = mkSpin(1.0,  2000.0, 2, 0.1,  " Hz");
-        m_f2     = mkSpin(1.0,  2000.0, 2, 0.1,  " Hz");
+        m_fs     = mkSpin(0.0,  2000.0, 2, 0.1,  " Hz");
+        m_Vpeak  = mkSpin(0.0,   50.0, 4, 0.001, " V");
+        m_f1     = mkSpin(0.0,  2000.0, 2, 0.1,  " Hz");
+        m_f2     = mkSpin(0.0,  2000.0, 2, 0.1,  " Hz");
 
         m_hintZ12     = mkHintLbl();
         m_hintVtarget = mkHintLbl();
@@ -265,7 +267,7 @@ void QuickEntryWidget::buildUi()
         addRow(form,"f₂  – upper side frequency (Z = Z₂):", m_f2);
 
         auto *note = mkFormLabel("Z₁ = Z₂ = √(Rₑ·Zmax).  Verify: √(f₁·f₂) ≈ fₛ.");
-        note->setStyleSheet("color:#666; font-size:8pt; font-style:italic;");
+        note->setStyleSheet(themed("color:%muted%; font-size:8pt; font-style:italic;"));
         form->addRow(note);
 
         connect(m_Vpeak, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
@@ -278,24 +280,24 @@ void QuickEntryWidget::buildUi()
         auto *box  = new QGroupBox("Step 3 – Delta Mass (Δm)");
         auto *form = new QFormLayout(box);
         form->setLabelAlignment(Qt::AlignRight); form->setSpacing(8);
-        m_deltaM_g = mkSpin(0.1,500.0,2,0.5, " g");
-        m_fo       = mkSpin(1.0,2000.0,2,0.1," Hz");
+        m_deltaM_g = mkSpin(0.0,500.0,2,0.5, " g");
+        m_fo       = mkSpin(0.0,2000.0,2,0.1," Hz");
         addRow(form,"Δm  – added mass (plasticine):", m_deltaM_g);
         addRow(form,"f₀  – resonance with mass:",     m_fo);
         auto *note = mkFormLabel("Add ~70 % of expected mms to cone centre. f₀ must be < fₛ.");
-        note->setStyleSheet("color:#666; font-size:8pt; font-style:italic;");
+        note->setStyleSheet(themed("color:%muted%; font-size:8pt; font-style:italic;"));
         form->addRow(note);
         vbox->addWidget(box);
     }
 
     // ── Step 4 – Physical / f3 ───────────────────────────────────
     {
-        auto *box  = new QGroupBox("Step 4 – Physical Dimensions & f₃");
+        auto *box  = new QGroupBox("Step 4 – Physical Dimensions && f₃");
         auto *form = new QFormLayout(box);
         form->setLabelAlignment(Qt::AlignRight); form->setSpacing(8);
-        m_Dd_mm = mkSpin(10.0,  800.0, 1, 0.5,   " mm");
-        m_Zmin  = mkSpin(0.0001, 50.0, 4, 0.001, " V rms");
-        m_f3    = mkSpin(100.0,100000.0,0,100.0, " Hz");
+        m_Dd_mm = mkSpin(0.0,   800.0, 1, 0.5,   " mm");
+        m_Zmin  = mkSpin(0.0,    50.0, 4, 0.001, " V rms");
+        m_f3    = mkSpin(0.0,100000.0, 0,100.0,  " Hz");
 
         m_hintVmin = mkHintLbl();
         m_hintVf3  = mkHintLbl();
@@ -311,7 +313,7 @@ void QuickEntryWidget::buildUi()
 
         auto *note = mkFormLabel("Enter the voltage measured at the impedance minimum above fₛ.\n"
                                  "Zmin and target voltage for f₃ are calculated automatically.");
-        note->setStyleSheet("color:#666; font-size:8pt; font-style:italic;");
+        note->setStyleSheet(themed("color:%muted%; font-size:8pt; font-style:italic;"));
         form->addRow(note);
 
         connect(m_Zmin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
@@ -334,7 +336,7 @@ void QuickEntryWidget::buildUi()
     // ── Action buttons ───────────────────────────────────────────
     {
         auto *hb      = new QHBoxLayout;
-        auto *btnCalc = new QPushButton("  Calculate & Continue to Entry  ");
+        auto *btnCalc = new QPushButton("  Calculate && Continue to Entry  ");
         btnCalc->setStyleSheet(themed("QPushButton{background:%accentHov%;color:white;"
                                "border-radius:4px;padding:8px 24px;font-weight:bold;}"));
         auto *btnClear = new QPushButton("Clear");
@@ -376,7 +378,7 @@ void QuickEntryWidget::buildResultsGroup()
     grid->setColumnStretch(1,2); grid->setSpacing(4);
 
     auto hdr = [&](int col, const QString &t) {
-        auto *l = new QLabel("<b>"+t+"</b>"); l->setStyleSheet("color:#777;font-size:8pt;");
+        auto *l = new QLabel("<b>"+t+"</b>"); l->setStyleSheet(themed("color:%muted%;font-size:8pt;"));
         grid->addWidget(l,0,col);
     };
     hdr(0,"Sym"); hdr(1,"Parameter"); hdr(2,"Value"); hdr(3,"Unit");

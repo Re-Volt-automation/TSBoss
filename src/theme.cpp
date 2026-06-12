@@ -1,10 +1,22 @@
 #include "theme.h"
 #include <QApplication>
 #include <QSettings>
+#include <QWidget>
 
 Theme &Theme::instance() {
     static Theme t;
     return t;
+}
+
+// Every colour themed() can substitute, in a fixed order, so a mode switch
+// can map the previous palette onto the new one (see setMode).
+static QList<QColor> paletteSnapshot(const Theme &t)
+{
+    return { t.pageBg(), t.panelBg(), t.sunkenBg(), t.inputBgFocus(), t.inputBg(),
+             t.statusBarBg(), t.borderStrong(), t.border(), t.gridLine(),
+             t.textSecondary(), t.textPrimary(), t.textMuted(), t.textDisabled(),
+             t.textUnit(), t.textOnAccent(), t.accentHover(), t.accentLight(),
+             t.accentPressed(), t.accent(), t.statusError(), t.statusWarn() };
 }
 
 Theme::Theme() { loadFromSettings(); }
@@ -22,11 +34,37 @@ void Theme::saveToSettings() const {
 
 void Theme::setMode(Mode m) {
     if (m == m_mode) return;
+    const QList<QColor> oldPal = paletteSnapshot(*this);
     m_mode = m;
     saveToSettings();
+    const QList<QColor> newPal = paletteSnapshot(*this);
     emit themeChanged();
-    if (auto *app = qobject_cast<QApplication *>(QApplication::instance()))
+    if (auto *app = qobject_cast<QApplication *>(QApplication::instance())) {
         app->setStyleSheet(globalStylesheet());
+        // Inline stylesheets built via themed() before the switch still hold
+        // the old palette's colours. Rewrite them in place (old hex → new
+        // hex) so a live switch needs no restart. Widgets with their own
+        // themeChanged hooks have already re-styled above; their sheets no
+        // longer contain stale colours and pass through unchanged.
+        for (QWidget *top : QApplication::topLevelWidgets()) {
+            QList<QWidget *> widgets = top->findChildren<QWidget *>();
+            widgets.prepend(top);
+            for (QWidget *w : widgets) {
+                QString ss = w->styleSheet();
+                if (ss.isEmpty()) continue;
+                bool changed = false;
+                for (int i = 0; i < oldPal.size(); ++i) {
+                    const QString o = hex(oldPal[i]);
+                    const QString n = hex(newPal[i]);
+                    if (o != n && ss.contains(o, Qt::CaseInsensitive)) {
+                        ss.replace(o, n, Qt::CaseInsensitive);
+                        changed = true;
+                    }
+                }
+                if (changed) w->setStyleSheet(ss);
+            }
+        }
+    }
 }
 
 // ─── Dark palette ────────────────────────────────────────────────────
@@ -399,6 +437,11 @@ QString Theme::globalStylesheet() const {
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 1px;
+        }
+        QTableCornerButton::section {
+            background: %PANEL_BG%;
+            border: none;
+            border-bottom: 1px solid %BORDER%;
         }
 
         /* ── Wizard / status bar / menus ────────────────────────── */

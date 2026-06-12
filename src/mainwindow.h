@@ -67,6 +67,8 @@ private:
     void toggleSidebar();
     void applySidebarState();
     void restyleSidebar();
+    void updateActiveNav();
+    void applyStoredEnvironment();
 
     DriverDatabase       *m_db            = nullptr;
     QStackedWidget       *m_stack         = nullptr;

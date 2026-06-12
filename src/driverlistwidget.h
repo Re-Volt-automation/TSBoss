@@ -46,15 +46,22 @@ private:
     QList<int> selectedIds() const;
     DriverFilter currentFilter() const;
     QDoubleSpinBox *mkFilterSpin(double max, int dec, const QString &suffix);
+    void restyleControls();          ///< (re)apply theme-derived inline styles
+    void updateFilterButton();       ///< arrow direction + active-bound count
 
     DriverDatabase *m_db;
     QTableWidget   *m_table;
     QLineEdit      *m_search;
     QLabel         *m_countLbl;
+    QLabel         *m_legendLbl  = nullptr;
     QPushButton    *m_btnEdit    = nullptr;
     QPushButton    *m_btnDelete  = nullptr;
     QPushButton    *m_btnUse     = nullptr;
     QPushButton    *m_btnCompare = nullptr;
+    QPushButton    *m_btnRefresh = nullptr;
+    QPushButton    *m_btnImport  = nullptr;
+    QPushButton    *m_btnExport  = nullptr;
+    QPushButton    *m_btnFilters = nullptr;
 
     // Parametric filter row (collapsed by default)
     QWidget        *m_filterRow  = nullptr;

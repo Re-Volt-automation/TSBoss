@@ -88,7 +88,8 @@ void ImpedanceDiagram::paintEvent(QPaintEvent *)
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
 
-    const QRectF area(44, 8, width() - 54, height() - 30);
+    // Bottom margin must hold the 14 px axis caption drawn at bottom+12.
+    const QRectF area(44, 8, width() - 54, height() - 36);
     p.fillRect(rect(), QColor("#fafafa"));
     p.fillRect(area.toRect(), Qt::white);
 
@@ -105,7 +106,7 @@ void ImpedanceDiagram::paintEvent(QPaintEvent *)
     p.rotate(-90);
     p.drawText(0, 0, "Impedance (Ω)");
     p.restore();
-    p.drawText(QRectF(area.left(), area.bottom()+14, area.width(), 14),
+    p.drawText(QRectF(area.left(), area.bottom()+12, area.width(), 14),
                Qt::AlignHCenter, "Frequency (Hz)");
 
     auto toScene = [&](double nx, double ny) -> QPointF {

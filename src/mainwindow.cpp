@@ -31,10 +31,81 @@
 #include <QCloseEvent>
 #include <QSettings>
 #include <QShortcut>
+#include <QIcon>
+#include <QPainter>
+#include <QPixmap>
+#include <QTabWidget>
+#include <QTextBrowser>
 #include <cmath>
 
 static constexpr int kSidebarExpanded  = 210;
 static constexpr int kSidebarCollapsed =  48;
+
+// ── Monochrome line icons for the sidebar nav ─────────────────────
+// Painted at 2× and packed into one QIcon: Off state = normal colour,
+// On state = accent (used by the checked/current-page button).
+static QPixmap navPixmap(const QString &kind, const QColor &c)
+{
+    constexpr int   S   = 36;
+    constexpr qreal DPR = 2.0;
+    QPixmap px(S, S);
+    px.setDevicePixelRatio(DPR);
+    px.fill(Qt::transparent);
+    QPainter p(&px);
+    p.setRenderHint(QPainter::Antialiasing);
+    QPen pen(c, 1.5);
+    pen.setCapStyle(Qt::RoundCap);
+    pen.setJoinStyle(Qt::RoundJoin);
+    p.setPen(pen);
+    p.setBrush(Qt::NoBrush);
+
+    if (kind == "box") {                       // speaker cabinet
+        p.drawRoundedRect(QRectF(3.0, 3.0, 12.0, 12.0), 1.5, 1.5);
+        p.drawEllipse(QPointF(9.0, 9.7), 3.0, 3.0);
+        p.setBrush(c);
+        p.drawEllipse(QPointF(9.0, 9.7), 0.9, 0.9);
+    } else if (kind == "db") {                 // database cylinder
+        p.drawEllipse(QRectF(4.0, 2.5, 10.0, 4.0));
+        p.drawLine(QPointF(4.0, 4.5),  QPointF(4.0, 13.5));
+        p.drawLine(QPointF(14.0, 4.5), QPointF(14.0, 13.5));
+        p.drawArc(QRectF(4.0, 11.5, 10.0, 4.0), 180*16, 180*16);
+        p.drawArc(QRectF(4.0, 7.0,  10.0, 4.0), 180*16, 180*16);
+    } else if (kind == "pencil") {             // new entry
+        p.drawLine(QPointF(5.0, 13.0), QPointF(11.6, 6.4));   // body, upper edge
+        p.drawLine(QPointF(7.0, 15.0), QPointF(13.6, 8.4));   // body, lower edge
+        p.drawLine(QPointF(11.6, 6.4), QPointF(13.6, 8.4));   // back end
+        p.drawLine(QPointF(5.0, 13.0), QPointF(4.2, 15.8));   // tip
+        p.drawLine(QPointF(4.2, 15.8), QPointF(7.0, 15.0));
+    } else if (kind == "gear") {               // settings
+        p.drawEllipse(QPointF(9.0, 9.0), 3.6, 3.6);
+        p.setBrush(c);
+        p.drawEllipse(QPointF(9.0, 9.0), 1.2, 1.2);
+        p.setBrush(Qt::NoBrush);
+        constexpr double kPi = 3.14159265358979323846;
+        for (int i = 0; i < 8; ++i) {
+            const double a = i * kPi / 4.0;
+            p.drawLine(QPointF(9.0 + 4.4*std::cos(a), 9.0 + 4.4*std::sin(a)),
+                       QPointF(9.0 + 6.2*std::cos(a), 9.0 + 6.2*std::sin(a)));
+        }
+    } else if (kind == "info") {               // about
+        p.drawEllipse(QPointF(9.0, 9.0), 6.3, 6.3);
+        p.setBrush(c);
+        p.drawEllipse(QPointF(9.0, 5.9), 0.9, 0.9);
+        p.setBrush(Qt::NoBrush);
+        pen.setWidthF(1.8);
+        p.setPen(pen);
+        p.drawLine(QPointF(9.0, 8.3), QPointF(9.0, 12.4));
+    }
+    return px;
+}
+
+static QIcon navIcon(const QString &kind, const QColor &normal, const QColor &checked)
+{
+    QIcon ic;
+    ic.addPixmap(navPixmap(kind, normal),  QIcon::Normal, QIcon::Off);
+    ic.addPixmap(navPixmap(kind, checked), QIcon::Normal, QIcon::On);
+    return ic;
+}
 
 // ─────────────────────────────────────────────────────────────────
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
@@ -54,6 +125,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     buildShortcuts();
     updateStatusBar();
     restoreWindowState();
+    applyStoredEnvironment();
 }
 
 MainWindow::~MainWindow()
@@ -171,28 +243,35 @@ void MainWindow::buildSidebar()
     vb->addWidget(sep1);
 
     // ── Nav button helpers ────────────────────────────────────────
-    auto makeNavBtn = [&](const QString &icon, const QString &label) -> QPushButton * {
-        auto *b = new QPushButton(icon + "  " + label);
+    auto makeNavBtn = [&](const QString &iconKind, const QString &label) -> QPushButton * {
+        auto *b = new QPushButton(label);
         b->setObjectName("sidebarNav");
         b->setFlat(true);
         b->setCursor(Qt::PointingHandCursor);
         vb->addWidget(b);
-        m_navEntries.push_back({b, icon, label});
+        m_navEntries.push_back({b, iconKind, label});
         return b;
     };
 
-    auto *btnEnclosure = makeNavBtn("📦", "Enclosure Model");
-    auto *btnDb        = makeNavBtn("🗄",  "Driver Database");
+    auto *btnEnclosure = makeNavBtn("box", "Enclosure Model");
+    auto *btnDb        = makeNavBtn("db",  "Driver Database");
     btnEnclosure->setToolTip("Enclosure Model  (Ctrl+1)");
     btnDb->setToolTip("Driver Database  (Ctrl+2)");
 
     // ── New Entry dropdown ────────────────────────────────────────
-    auto *btnNewEntry = new QPushButton("✏  New Entry  ▾");
+    auto *btnNewEntry = new QPushButton("New Entry  ▾");
     btnNewEntry->setObjectName("sidebarNav");
     btnNewEntry->setFlat(true);
     btnNewEntry->setCursor(Qt::PointingHandCursor);
     vb->addWidget(btnNewEntry);
-    m_navEntries.push_back({btnNewEntry, "✏", "New Entry"});
+    m_navEntries.push_back({btnNewEntry, "pencil", "New Entry"});
+
+    // The current page is shown as a checked nav button; checking is
+    // driven exclusively by updateActiveNav(), never by the click itself.
+    for (auto *b : {btnEnclosure, btnDb, btnNewEntry}) {
+        b->setCheckable(true);
+        b->setAutoExclusive(false);
+    }
 
     auto *newEntryMenu = new QMenu(this);
     newEntryMenu->setObjectName("sidebarMenu");
@@ -204,6 +283,7 @@ void MainWindow::buildSidebar()
     auto *actManual = newEntryMenu->addAction("📋  Manual / Datasheet\tCtrl+4");
     connect(btnNewEntry, &QPushButton::clicked, this, [=]() {
         newEntryMenu->exec(btnNewEntry->mapToGlobal(QPoint(0, btnNewEntry->height())));
+        updateActiveNav();   // undo the click's toggle if the menu was dismissed
     });
     connect(actQuick,  &QAction::triggered, this, &MainWindow::showQuickMeasurement);
     connect(actWizard, &QAction::triggered, this, &MainWindow::launchWizard);
@@ -214,8 +294,8 @@ void MainWindow::buildSidebar()
     sep2->setFrameShape(QFrame::HLine);
     vb->addWidget(sep2);
 
-    auto *btnAdvanced = makeNavBtn("⚙", "Advanced Settings");
-    auto *btnAbout    = makeNavBtn("ℹ", "About / Method");
+    auto *btnAdvanced = makeNavBtn("gear", "Advanced Settings");
+    auto *btnAbout    = makeNavBtn("info", "About / Method");
     btnAdvanced->setToolTip("Advanced Settings  (Ctrl+,)");
     btnAbout->setToolTip("About / Method  (F1)");
 
@@ -230,6 +310,10 @@ void MainWindow::buildSidebar()
     connect(btnDb,        &QPushButton::clicked, this, &MainWindow::showDatabase);
     connect(btnAdvanced,  &QPushButton::clicked, this, &MainWindow::showAdvancedSettings);
     connect(btnAbout,     &QPushButton::clicked, this, &MainWindow::showAbout);
+    // Re-assert the checked state — a click on the already-current button
+    // would otherwise just toggle it off (the stack index doesn't change).
+    connect(btnEnclosure, &QPushButton::clicked, this, &MainWindow::updateActiveNav);
+    connect(btnDb,        &QPushButton::clicked, this, &MainWindow::updateActiveNav);
 
     // Apply theme-aware styles
     restyleSidebar();
@@ -245,6 +329,11 @@ void MainWindow::buildSidebar()
     m_splitter->setCollapsible(1, false);
 
     setCentralWidget(m_splitter);
+
+    // Highlight the nav button for whichever page the stack shows.
+    connect(m_stack, &QStackedWidget::currentChanged,
+            this, [this](int) { updateActiveNav(); });
+    updateActiveNav();
 
     // Live theme switching: re-style sidebar widgets so they match.
     connect(&Theme::instance(), &Theme::themeChanged, this, &MainWindow::restyleSidebar);
@@ -352,31 +441,52 @@ void MainWindow::applySidebarState()
     if (m_appSub)      m_appSub->setVisible(exp);
     if (m_dbStatusLbl) m_dbStatusLbl->setVisible(exp);
 
-    // Nav button styling — amber-on-hover, accent-on-press
+    // Nav button styling — amber-on-hover, accent-on-press, and a left
+    // accent bar + bold text marking the current page (checked state).
     const QString fgHex      = hex(t.textPrimary());
     const QString accentBg   = hex(t.accent());
     const QString textOnAccentHex = hex(t.textOnAccent());
 
     const QString expStyle = QString(
         "QPushButton { background:transparent; color:%1; border:none;"
-        "  text-align:left; padding:13px 20px; font-size:10pt; }"
+        "  border-left:3px solid transparent;"
+        "  text-align:left; padding:13px 17px; font-size:10pt; }"
         "QPushButton:hover { background:%2; color:%3; }"
-        "QPushButton:pressed { background:%4; color:%5; }")
+        "QPushButton:pressed { background:%4; color:%5; }"
+        "QPushButton:checked { background:%2; color:%3;"
+        "  border-left:3px solid %3; font-weight:bold; }")
         .arg(fgHex, hoverHex, accentHex, accentBg, textOnAccentHex);
     const QString colStyle = QString(
         "QPushButton { background:transparent; color:%1; border:none;"
-        "  text-align:center; padding:12px 4px; font-size:14pt; }"
+        "  border-left:3px solid transparent;"
+        "  text-align:center; padding:12px 1px; font-size:14pt; }"
         "QPushButton:hover { background:%2; color:%3; }"
-        "QPushButton:pressed { background:%4; color:%5; }")
+        "QPushButton:pressed { background:%4; color:%5; }"
+        "QPushButton:checked { background:%2;"
+        "  border-left:3px solid %3; }")
         .arg(fgHex, hoverHex, accentHex, accentBg, textOnAccentHex);
 
+    const QColor iconClr = t.textPrimary();
+    const QColor iconOn  = t.accent();
     for (auto &e : m_navEntries) {
         e.btn->setStyleSheet(exp ? expStyle : colStyle);
+        e.btn->setIcon(navIcon(e.icon, iconClr, iconOn));
+        e.btn->setIconSize(QSize(18, 18));
         if (e.label == "New Entry")
-            e.btn->setText(exp ? e.icon + "  " + e.label + "  ▾" : e.icon);
+            e.btn->setText(exp ? e.label + "  ▾" : QString());
         else
-            e.btn->setText(exp ? e.icon + "  " + e.label : e.icon);
+            e.btn->setText(exp ? e.label : QString());
     }
+}
+
+void MainWindow::updateActiveNav()
+{
+    if (m_navEntries.size() < 3 || !m_stack) return;
+    const int page = m_stack->currentIndex();
+    // 0 = enclosure; 1,2 = database (list + detail); 3,4 = entry forms
+    m_navEntries[0].btn->setChecked(page == 0);
+    m_navEntries[1].btn->setChecked(page == 1 || page == 2);
+    m_navEntries[2].btn->setChecked(page == 3 || page == 4);
 }
 
 void MainWindow::updateStatusBar()
@@ -504,6 +614,31 @@ static double calcSpeedOfSound(double T_C, double RH_pct, double P_hPa)
     return 331.3 * std::sqrt((273.15 + T_C) / 273.15) * std::sqrt(1.0 + 0.0320 * xw);
 }
 
+// Re-apply persisted air conditions and plot ranges at startup, so the
+// Advanced Settings survive a restart instead of silently resetting.
+void MainWindow::applyStoredEnvironment()
+{
+    QSettings s;
+    const double T  = s.value("env/temperatureC", 20.0).toDouble();
+    const double RH = s.value("env/humidityPct",  50.0).toDouble();
+    const double P  = s.value("env/pressureHPa",  1013.25).toDouble();
+    m_enclosure->setSpeedOfSound(calcSpeedOfSound(T, RH, P));
+
+    PlotRangeSettings r;
+    auto load = [&s](const char *kMin, const char *kMax,
+                     std::optional<double> &mn, std::optional<double> &mx) {
+        if (s.contains(kMin) && s.contains(kMax)) {
+            mn = s.value(kMin).toDouble();
+            mx = s.value(kMax).toDouble();
+        }
+    };
+    load("plot/splMin",  "plot/splMax",  r.splMin,  r.splMax);
+    load("plot/gdMin",   "plot/gdMax",   r.gdMin,   r.gdMax);
+    load("plot/voltMin", "plot/voltMax", r.voltMin, r.voltMax);
+    load("plot/excMin",  "plot/excMax",  r.excMin,  r.excMax);
+    m_enclosure->setPlotRanges(r);
+}
+
 void MainWindow::showAdvancedSettings()
 {
     auto *dlg = new QDialog(this);
@@ -532,7 +667,7 @@ void MainWindow::showAdvancedSettings()
     themeForm->addRow("Theme:", themeRow);
 
     auto *themeNote = new QLabel(
-        "Most surfaces switch live. A restart is recommended for a fully clean repaint.");
+        "The theme switches live across all pages.");
     themeNote->setObjectName("FormCaption");
     themeNote->setWordWrap(true);
     themeForm->addRow("", themeNote);
@@ -560,9 +695,15 @@ void MainWindow::showAdvancedSettings()
         return s;
     };
 
-    auto *spTemp = mkSpin(-40.0, 60.0, 0.5, 20.0, 1, " °C");
-    auto *spHum  = mkSpin(  0.0,100.0, 1.0, 50.0, 0, " %");
-    auto *spPres = mkSpin(800.0,1100.0,1.0,1013.25,2," hPa");
+    // Initialise from the persisted values, not hard-coded defaults —
+    // otherwise every OK silently reverts a previously chosen climate.
+    QSettings settings;
+    auto *spTemp = mkSpin(-40.0, 60.0, 0.5,
+                          settings.value("env/temperatureC", 20.0).toDouble(), 1, " °C");
+    auto *spHum  = mkSpin(  0.0,100.0, 1.0,
+                          settings.value("env/humidityPct", 50.0).toDouble(), 0, " %");
+    auto *spPres = mkSpin(800.0,1100.0,1.0,
+                          settings.value("env/pressureHPa", 1013.25).toDouble(), 2, " hPa");
 
     form->addRow("Temperature:",        spTemp);
     form->addRow("Relative humidity:",  spHum);
@@ -672,6 +813,9 @@ void MainWindow::showAdvancedSettings()
     if (dlg->exec() == QDialog::Accepted) {
         // Theme already applied live; ensure it is persisted to settings.
         Theme::instance().saveToSettings();
+        settings.setValue("env/temperatureC", spTemp->value());
+        settings.setValue("env/humidityPct",  spHum->value());
+        settings.setValue("env/pressureHPa",  spPres->value());
         const double c = calcSpeedOfSound(spTemp->value(), spHum->value(), spPres->value());
         m_enclosure->setSpeedOfSound(c);
         statusBar()->showMessage(
@@ -683,17 +827,23 @@ void MainWindow::showAdvancedSettings()
             8000);
 
         PlotRangeSettings r;
-        auto applyRow = [](const RangeRow &row,
+        auto applyRow = [&settings](const RangeRow &row,
+                           const char *kMin, const char *kMax,
                            std::optional<double> &mn, std::optional<double> &mx) {
             if (row.chk->isChecked()) {
                 mn = row.spMin->value();
                 mx = row.spMax->value();
+                settings.setValue(kMin, *mn);
+                settings.setValue(kMax, *mx);
+            } else {
+                settings.remove(kMin);
+                settings.remove(kMax);
             }
         };
-        applyRow(rowSpl,  r.splMin,  r.splMax);
-        applyRow(rowGd,   r.gdMin,   r.gdMax);
-        applyRow(rowVolt, r.voltMin, r.voltMax);
-        applyRow(rowExc,  r.excMin,  r.excMax);
+        applyRow(rowSpl,  "plot/splMin",  "plot/splMax",  r.splMin,  r.splMax);
+        applyRow(rowGd,   "plot/gdMin",   "plot/gdMax",   r.gdMin,   r.gdMax);
+        applyRow(rowVolt, "plot/voltMin", "plot/voltMax", r.voltMin, r.voltMax);
+        applyRow(rowExc,  "plot/excMin",  "plot/excMax",  r.excMin,  r.excMax);
         m_enclosure->setPlotRanges(r);
     } else {
         // Cancel — undo any live theme preview.
@@ -705,25 +855,49 @@ void MainWindow::showAdvancedSettings()
 
 void MainWindow::showAbout()
 {
-    QMessageBox::about(this, "TSBoss – About",
+    auto *dlg = new QDialog(this);
+    dlg->setWindowTitle("TSBoss – About");
+    dlg->resize(580, 540);
+    auto *vb   = new QVBoxLayout(dlg);
+    auto *tabs = new QTabWidget;
+
+    auto mkTab = [&](const QString &title, const QString &html) {
+        auto *tb = new QTextBrowser;
+        tb->setOpenExternalLinks(true);
+        tb->setFrameShape(QFrame::NoFrame);
+        tb->setHtml(html);
+        tabs->addTab(tb, title);
+    };
+
+    mkTab("About",
         "<h3>TSBoss</h3>"
         "<p>Loudspeaker Thiele/Small parameter management and enclosure-modelling tool.</p>"
-        "<hr>"
         "<p><b>What it does:</b></p>"
         "<ul>"
         "<li><b>Driver database</b> &mdash; capture raw impedance and added-mass "
         "measurements, compute the full Thiele/Small parameter set "
         "(small- and large-signal), and store drivers in a local SQLite database "
-        "with CSV import/export and side-by-side detail views.</li>"
+        "with CSV import/export and side-by-side compare views.</li>"
         "<li><b>Measurement entry</b> &mdash; full datasheet form, a minimal "
         "quick-entry form, and a step-by-step wizard that walks through "
         "impedance sweep, &minus;3&nbsp;dB bandwidth extraction, and the "
         "delta-mass procedure.</li>"
-        "<li><b>Enclosure modeller</b> &mdash; compare multiple sealed and vented "
-        "box designs simultaneously, with SPL response, group delay, and "
-        "required-voltage plots. Includes a port calculator for round and "
-        "rectangular ports, with optional shared-wall end correction.</li>"
+        "<li><b>Enclosure modeller</b> &mdash; compare sealed, vented, "
+        "infinite-baffle and bandpass designs simultaneously, with SPL, group "
+        "delay, power, excursion, port-velocity, impedance and max-SPL plots, "
+        "plus a port calculator for round and rectangular ports.</li>"
         "</ul>"
+        "<hr>"
+        "<p><b>Support the project:</b><br>"
+        "TSBoss is a free, one-person side project. If it has been useful and "
+        "you'd like to help keep it actively developed, a small donation of any "
+        "amount is genuinely appreciated &mdash; there's no minimum.<br>"
+        "<a href=\"https://www.paypal.com/ncp/payment/88KEBEEQCC6CQ\">Donate via PayPal</a></p>"
+        "<p><b>Bugs &amp; feedback:</b><br>"
+        "Found a bug, or have a feature request? Email "
+        "<a href=\"mailto:wessellemmer@gmail.com\">wessellemmer@gmail.com</a>.</p>");
+
+    mkTab("Method",
         "<p><b>Measurement method:</b><br>"
         "Delta-mass / constant-voltage impedance technique. Resonance and quality "
         "factors are extracted from the &minus;3&nbsp;dB bandwidth around f<sub>s</sub>; "
@@ -749,21 +923,28 @@ void MainWindow::showAbout()
         "f₃ is located by binary search on the resulting SPL curve; group "
         "delay is the numerical phase derivative of the total acoustic output.</p>"
         "<p><b>Database:</b> SQLite, stored in the application data directory; "
-        "schema is migrated forward via additive ALTER&nbsp;TABLE steps.</p>"
-        "<p><b>Keyboard shortcuts:</b><br>"
-        "Ctrl+1 Enclosure model &middot; Ctrl+2 Driver database &middot; "
-        "Ctrl+3 Quick measurement &middot; Ctrl+4 Datasheet entry &middot; "
-        "Ctrl+5 Guided wizard &middot; Ctrl+, Settings &middot; F1 About<br>"
-        "Enclosure page: Ctrl+S save project &middot; Ctrl+O load project<br>"
-        "Database page: Ctrl+F focus search</p>"
-        "<hr>"
-        "<p><b>Support the project:</b><br>"
-        "TSBoss is a free, one-person side project. If it has been useful and "
-        "you'd like to help keep it actively developed, a small donation of any "
-        "amount is genuinely appreciated &mdash; there's no minimum.<br>"
-        "<a href=\"https://www.paypal.com/ncp/payment/88KEBEEQCC6CQ\">Donate via PayPal</a></p>"
-        "<p><b>Bugs &amp; feedback:</b><br>"
-        "Found a bug, or have a feature request? Email "
-        "<a href=\"mailto:wessellemmer@gmail.com\">wessellemmer@gmail.com</a>.</p>"
-    );
+        "schema is migrated forward via additive ALTER&nbsp;TABLE steps.</p>");
+
+    mkTab("Shortcuts",
+        "<p><b>Global:</b></p>"
+        "<p>Ctrl+1 &mdash; Enclosure model<br>"
+        "Ctrl+2 &mdash; Driver database<br>"
+        "Ctrl+3 &mdash; Quick measurement<br>"
+        "Ctrl+4 &mdash; Datasheet entry<br>"
+        "Ctrl+5 &mdash; Guided wizard<br>"
+        "Ctrl+, &mdash; Advanced settings<br>"
+        "F1 &mdash; About</p>"
+        "<p><b>Enclosure page:</b></p>"
+        "<p>Ctrl+S &mdash; save project<br>"
+        "Ctrl+O &mdash; load project</p>"
+        "<p><b>Database page:</b></p>"
+        "<p>Ctrl+F &mdash; focus search<br>"
+        "Ctrl+click &mdash; select multiple drivers (2&ndash;4) to compare</p>");
+
+    vb->addWidget(tabs);
+    auto *bb = new QDialogButtonBox(QDialogButtonBox::Close);
+    connect(bb, &QDialogButtonBox::rejected, dlg, &QDialog::reject);
+    vb->addWidget(bb);
+    dlg->exec();
+    dlg->deleteLater();
 }

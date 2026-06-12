@@ -21,6 +21,8 @@
 #include <QShortcut>
 #include <QTextStream>
 #include <QFile>
+#include <QClipboard>
+#include <QGuiApplication>
 
 // Column indices
 enum Col { C_MAKE=0, C_MODEL, C_DATE, C_BY,
@@ -30,6 +32,64 @@ static const QStringList HEADERS = {
     "Make", "Model", "Date", "Measured By",
     "fₛ (Hz)", "Qts", "Vas (L)", "BL (Tm)", "Rₑ (Ω)"
 };
+
+// Value-origin colours for numeric cells. Picked per theme: the light-mode
+// hues vanish against the dark background.
+static QColor calcColor()
+{
+    return Theme::instance().mode() == Theme::Mode::Dark ? QColor("#4aa3d8")
+                                                         : QColor("#1a7db5");
+}
+static QColor userColor()
+{
+    return Theme::instance().mode() == Theme::Mode::Dark ? QColor("#66bb6a")
+                                                         : QColor("#2e7d32");
+}
+
+// Toolbar button styles — all theme-derived. One accent action (Use for
+// Enclosure); everything else neutral, with Delete turning red on hover.
+static QString primaryBtnStyle()
+{
+    return themed(
+        "QPushButton{background:%accent%;color:%onAccent%;border-radius:4px;"
+        "padding:5px 14px;font-weight:bold;}"
+        "QPushButton:hover{background:%accentHov%;}"
+        "QPushButton:disabled{background:transparent;color:%disabled%;"
+        "border:1px solid %border%;font-weight:normal;}");
+}
+static QString neutralBtnStyle()
+{
+    return themed(
+        "QPushButton{background:%input%;color:%text2%;border:1px solid %border2%;"
+        "border-radius:4px;padding:5px 14px;}"
+        "QPushButton:hover{background:%inputFocus%;}"
+        "QPushButton:checked{background:%inputFocus%;border-color:%accent%;color:%accent%;}"
+        "QPushButton:disabled{background:transparent;color:%disabled%;border:1px solid %border%;}");
+}
+static QString filterActiveBtnStyle()
+{
+    return themed(
+        "QPushButton{background:%inputFocus%;color:%accent%;border:1px solid %accent%;"
+        "border-radius:4px;padding:5px 14px;font-weight:bold;}"
+        "QPushButton:hover{background:%inputFocus%;}");
+}
+static QString dangerBtnStyle()
+{
+    return themed(
+        "QPushButton{background:%input%;color:%text2%;border:1px solid %border2%;"
+        "border-radius:4px;padding:5px 14px;}"
+        "QPushButton:hover{background:%error%;color:white;border-color:%error%;}"
+        "QPushButton:disabled{background:transparent;color:%disabled%;border:1px solid %border%;}");
+}
+
+static int activeBoundCount(const DriverFilter &f)
+{
+    int n = 0;
+    for (const auto &b : {f.fsMin, f.fsMax, f.qtsMin, f.qtsMax,
+                          f.vasLMin, f.vasLMax, f.reMin, f.reMax})
+        n += b.has_value() ? 1 : 0;
+    return n;
+}
 
 DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
     : QWidget(parent), m_db(db)
@@ -41,7 +101,7 @@ DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
     m_search->setClearButtonEnabled(true);
     m_search->setMinimumWidth(280);
 
-    auto *btnRefresh = new QPushButton("Refresh");
+    m_btnRefresh = new QPushButton("Refresh");
     m_btnUse     = new QPushButton("Use for Enclosure");
     m_btnEdit    = new QPushButton("Edit");
     m_btnDelete  = new QPushButton("Delete");
@@ -51,47 +111,27 @@ DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
     m_btnEdit->setEnabled(false);
     m_btnDelete->setEnabled(false);
     m_btnCompare->setEnabled(false);
-    auto *btnFilters = new QPushButton("Filters ▾");
-    btnFilters->setCheckable(true);
-    auto *btnImport  = new QPushButton("Import CSV");
-    auto *btnExport  = new QPushButton("Export CSV");
-    m_countLbl = new QLabel;
-    m_countLbl->setStyleSheet(themed("color:%muted%;"));
-
-    for (auto *b : {btnRefresh}) {
-        b->setStyleSheet(themed("QPushButton{background:%accentHov%;color:white;border-radius:4px;"
-                         "padding:5px 14px;}QPushButton:hover{background:%accentLt%;}"));
-    }
-    m_btnUse->setStyleSheet("QPushButton{background:#27ae60;color:white;border-radius:4px;"
-                           "padding:5px 14px;}QPushButton:hover{background:#1e8449;}"
-                           "QPushButton:disabled{background:#b0d9c0;color:#aaa;}");
-    m_btnEdit->setStyleSheet("QPushButton{background:#f39c12;color:white;border-radius:4px;"
-                            "padding:5px 14px;}QPushButton:hover{background:#e67e22;}"
-                            "QPushButton:disabled{background:#e0d0b0;color:#aaa;}");
-    m_btnDelete->setStyleSheet(themed("QPushButton{background:%error%;color:white;border-radius:4px;"
-                               "padding:5px 14px;}QPushButton:hover{background:%error%;}"
-                               "QPushButton:disabled{background:#e0c0c0;color:#aaa;}"));
-    btnImport->setStyleSheet("QPushButton{background:#95a5a6;color:white;border-radius:4px;"
-                             "padding:5px 14px;}QPushButton:hover{background:#7f8c8d;}");
-    btnExport->setStyleSheet("QPushButton{background:#95a5a6;color:white;border-radius:4px;"
-                             "padding:5px 14px;}QPushButton:hover{background:#7f8c8d;}");
-    m_btnCompare->setStyleSheet("QPushButton{background:#8e44ad;color:white;border-radius:4px;"
-                                "padding:5px 14px;}QPushButton:hover{background:#7d3c98;}"
-                                "QPushButton:disabled{background:#cdb8d8;color:#aaa;}");
-    btnFilters->setStyleSheet("QPushButton{background:#95a5a6;color:white;border-radius:4px;"
-                              "padding:5px 14px;}QPushButton:hover{background:#7f8c8d;}"
-                              "QPushButton:checked{background:#566573;}");
+    m_btnFilters = new QPushButton("Filters ▾");
+    m_btnFilters->setCheckable(true);
+    m_btnImport  = new QPushButton("Import CSV");
+    m_btnExport  = new QPushButton("Export CSV");
+    m_countLbl  = new QLabel;
+    m_legendLbl = new QLabel;
+    m_legendLbl->setToolTip("Coloured values: calculated = derived from other fields, "
+                            "user-entered = typed in by hand.");
 
     toolbar->addWidget(m_search);
-    toolbar->addWidget(btnRefresh);
-    toolbar->addWidget(btnFilters);
+    toolbar->addWidget(m_btnRefresh);
+    toolbar->addWidget(m_btnFilters);
     toolbar->addWidget(m_btnUse);
     toolbar->addWidget(m_btnEdit);
     toolbar->addWidget(m_btnDelete);
     toolbar->addWidget(m_btnCompare);
-    toolbar->addWidget(btnImport);
-    toolbar->addWidget(btnExport);
+    toolbar->addWidget(m_btnImport);
+    toolbar->addWidget(m_btnExport);
     toolbar->addStretch();
+    toolbar->addWidget(m_legendLbl);
+    toolbar->addSpacing(12);
     toolbar->addWidget(m_countLbl);
 
     // ── Parametric filter row (collapsed until Filters is toggled)
@@ -118,8 +158,7 @@ DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
         addRange("Vas", m_vasMin, m_vasMax, 2000.0, 1, " L");
         addRange("Rₑ",  m_reMin,  m_reMax,  64.0,   1, " Ω");
         auto *btnClear = new QPushButton("Clear");
-        btnClear->setStyleSheet("QPushButton{background:#95a5a6;color:white;border-radius:4px;"
-                                "padding:3px 10px;}QPushButton:hover{background:#7f8c8d;}");
+        btnClear->setStyleSheet(neutralBtnStyle());
         connect(btnClear, &QPushButton::clicked, this, [this] {
             for (auto *s : {m_fsMin, m_fsMax, m_qtsMin, m_qtsMax,
                             m_vasMin, m_vasMax, m_reMin, m_reMax}) {
@@ -131,7 +170,9 @@ DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
         h->addStretch();
     }
     m_filterRow->setVisible(false);
-    connect(btnFilters, &QPushButton::toggled, m_filterRow, &QWidget::setVisible);
+    connect(m_btnFilters, &QPushButton::toggled, m_filterRow, &QWidget::setVisible);
+    connect(m_btnFilters, &QPushButton::toggled,
+            this, [this](bool) { updateFilterButton(); });
 
     // ── Table
     m_table = new QTableWidget(0, C_COUNT);
@@ -143,7 +184,10 @@ DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
     m_table->setSortingEnabled(true);
     m_table->verticalHeader()->setVisible(false);
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
-    m_table->horizontalHeader()->setStretchLastSection(true);
+    // Stretch the free-text column; stretching the last (numeric) column
+    // would open a dead gulf between the text and number blocks.
+    m_table->horizontalHeader()->setSectionResizeMode(C_BY, QHeaderView::Stretch);
+    m_table->horizontalHeader()->setStretchLastSection(false);
     m_table->setShowGrid(false);
     m_table->setObjectName("driverTable");
     // Structural panel styling lives in global QSS so live theme switching
@@ -165,13 +209,21 @@ DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
     connect(m_search,  &QLineEdit::textChanged,        this, &DriverListWidget::onSearch);
     connect(m_table,   &QTableWidget::cellDoubleClicked,this, &DriverListWidget::onRowDoubleClicked);
     connect(m_table,   &QTableWidget::itemSelectionChanged, this, &DriverListWidget::onSelectionChanged);
-    connect(btnRefresh,&QPushButton::clicked, this, &DriverListWidget::refresh);
+    connect(m_btnRefresh, &QPushButton::clicked, this, &DriverListWidget::refresh);
     connect(m_btnUse,     &QPushButton::clicked, this, &DriverListWidget::onUseClicked);
     connect(m_btnEdit,    &QPushButton::clicked, this, &DriverListWidget::onEditClicked);
     connect(m_btnDelete,  &QPushButton::clicked, this, &DriverListWidget::onDeleteClicked);
     connect(m_btnCompare, &QPushButton::clicked, this, &DriverListWidget::onCompareClicked);
-    connect(btnImport, &QPushButton::clicked, this, &DriverListWidget::onImportCsv);
-    connect(btnExport, &QPushButton::clicked, this, &DriverListWidget::onExportCsv);
+    connect(m_btnImport, &QPushButton::clicked, this, &DriverListWidget::onImportCsv);
+    connect(m_btnExport, &QPushButton::clicked, this, &DriverListWidget::onExportCsv);
+
+    restyleControls();
+    // Inline themed() styles go stale on a live theme switch; re-apply them
+    // and re-populate so origin-coloured cells pick the new palette.
+    connect(&Theme::instance(), &Theme::themeChanged, this, [this] {
+        restyleControls();
+        refresh();
+    });
 
     // Ctrl+F focuses the search box while this page is active
     auto *scFind = new QShortcut(QKeySequence::Find, this);
@@ -182,6 +234,37 @@ DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
     });
 
     refresh();
+}
+
+void DriverListWidget::restyleControls()
+{
+    m_btnUse->setStyleSheet(primaryBtnStyle());
+    m_btnDelete->setStyleSheet(dangerBtnStyle());
+    for (auto *b : {m_btnRefresh, m_btnEdit, m_btnCompare,
+                    m_btnImport, m_btnExport})
+        b->setStyleSheet(neutralBtnStyle());
+    m_countLbl->setStyleSheet(themed("color:%muted%;"));
+    m_legendLbl->setStyleSheet(themed("color:%muted%; font-size:8pt;"));
+    m_legendLbl->setText(QString("<span style='color:%1;'>●</span> calculated"
+                                 "&nbsp;&nbsp;<span style='color:%2;'>●</span> user-entered")
+                         .arg(calcColor().name(), userColor().name()));
+    if (m_filterRow) {
+        for (auto *l : m_filterRow->findChildren<QLabel *>())
+            l->setStyleSheet(themed("color:%muted%;"));
+        for (auto *b : m_filterRow->findChildren<QPushButton *>())
+            b->setStyleSheet(neutralBtnStyle());
+    }
+    updateFilterButton();
+}
+
+void DriverListWidget::updateFilterButton()
+{
+    const bool open = m_btnFilters->isChecked();
+    const int  n    = activeBoundCount(currentFilter());
+    m_btnFilters->setText(QString("Filters%1 %2")
+                          .arg(n > 0 ? QString(" · %1").arg(n) : QString())
+                          .arg(open ? "▴" : "▾"));
+    m_btnFilters->setStyleSheet(n > 0 ? filterActiveBtnStyle() : neutralBtnStyle());
 }
 
 void DriverListWidget::refresh()
@@ -199,6 +282,7 @@ void DriverListWidget::refresh()
     }
     populate(records);
     if (f.isActive()) m_countLbl->setText(m_countLbl->text() + "  (filtered)");
+    updateFilterButton();
 }
 
 void DriverListWidget::populate(const QList<DriverRecord> &records)
@@ -211,8 +295,8 @@ void DriverListWidget::populate(const QList<DriverRecord> &records)
         item->setFlags(item->flags() & ~Qt::ItemIsEditable);
         m_table->setItem(row, col, item);
     };
-    static const QColor kCalcColor("#1a7db5");
-    static const QColor kUserColor("#2e7d32");
+    const QColor kCalcColor = calcColor();
+    const QColor kUserColor = userColor();
 
     auto numCell = [&](int row, int col, double v, int d,
                        bool calculated = false, bool userEntered = false) {
@@ -342,26 +426,28 @@ void DriverListWidget::onCompareClicked()
     }
     if (drivers.size() < 2) return;
 
-    struct Row { const char *name; const char *unit; int dec;
+    // `better`: +1 = higher wins, −1 = lower wins, 0 = depends on the design
+    // goal (Qts, Vas, …) so no winner is marked.
+    struct Row { const char *name; const char *unit; int dec; int better;
                  std::function<double(const DriverRecord &)> get; };
     const QList<Row> rows = {
-        { "fs",   "Hz",  1, [](const DriverRecord &r){ return r.fs; } },
-        { "Rₑ",   "Ω",   2, [](const DriverRecord &r){ return r.Re; } },
-        { "Qms",  "",    3, [](const DriverRecord &r){ return r.Qms; } },
-        { "Qes",  "",    3, [](const DriverRecord &r){ return r.Qes; } },
-        { "Qts",  "",    3, [](const DriverRecord &r){ return r.Qts; } },
-        { "Vas",  "L",   2, [](const DriverRecord &r){ return r.Vas * 1000.0; } },
-        { "mms",  "g",   2, [](const DriverRecord &r){ return r.mms * 1000.0; } },
-        { "Cms",  "mm/N",3, [](const DriverRecord &r){ return r.Cms * 1000.0; } },
-        { "Rms",  "kg/s",3, [](const DriverRecord &r){ return r.Rms; } },
-        { "BL",   "Tm",  2, [](const DriverRecord &r){ return r.BL; } },
-        { "Sd",   "cm²", 1, [](const DriverRecord &r){ return r.Sd * 1e4; } },
-        { "Lₑ",   "mH",  3, [](const DriverRecord &r){ return r.Le * 1000.0; } },
-        { "Znom", "Ω",   0, [](const DriverRecord &r){ return r.Znom; } },
-        { "Xmax", "mm",  1, [](const DriverRecord &r){ return r.Xmax; } },
-        { "Xlim", "mm",  1, [](const DriverRecord &r){ return r.Xlim; } },
-        { "Pe",   "W",   0, [](const DriverRecord &r){ return r.Pe; } },
-        { "SPL",  "dB",  1, [](const DriverRecord &r){ return r.Spl; } },
+        { "fs",   "Hz",  1, -1, [](const DriverRecord &r){ return r.fs; } },
+        { "Rₑ",   "Ω",   2,  0, [](const DriverRecord &r){ return r.Re; } },
+        { "Qms",  "",    3,  0, [](const DriverRecord &r){ return r.Qms; } },
+        { "Qes",  "",    3,  0, [](const DriverRecord &r){ return r.Qes; } },
+        { "Qts",  "",    3,  0, [](const DriverRecord &r){ return r.Qts; } },
+        { "Vas",  "L",   2,  0, [](const DriverRecord &r){ return r.Vas * 1000.0; } },
+        { "mms",  "g",   2,  0, [](const DriverRecord &r){ return r.mms * 1000.0; } },
+        { "Cms",  "mm/N",3,  0, [](const DriverRecord &r){ return r.Cms * 1000.0; } },
+        { "Rms",  "kg/s",3,  0, [](const DriverRecord &r){ return r.Rms; } },
+        { "BL",   "Tm",  2, +1, [](const DriverRecord &r){ return r.BL; } },
+        { "Sd",   "cm²", 1,  0, [](const DriverRecord &r){ return r.Sd * 1e4; } },
+        { "Lₑ",   "mH",  3, -1, [](const DriverRecord &r){ return r.Le * 1000.0; } },
+        { "Znom", "Ω",   0,  0, [](const DriverRecord &r){ return r.Znom; } },
+        { "Xmax", "mm",  1, +1, [](const DriverRecord &r){ return r.Xmax; } },
+        { "Xlim", "mm",  1, +1, [](const DriverRecord &r){ return r.Xlim; } },
+        { "Pe",   "W",   0, +1, [](const DriverRecord &r){ return r.Pe; } },
+        { "SPL",  "dB",  1, +1, [](const DriverRecord &r){ return r.Spl; } },
     };
 
     auto *dlg = new QDialog(this);
@@ -369,6 +455,7 @@ void DriverListWidget::onCompareClicked()
     auto *vb = new QVBoxLayout(dlg);
 
     auto *tbl = new QTableWidget(rows.size(), drivers.size());
+    tbl->setCornerButtonEnabled(false);
     QStringList headers;
     for (const auto &d : drivers)
         headers << (d.make + "\n" + d.model);
@@ -383,24 +470,65 @@ void DriverListWidget::onCompareClicked()
     tbl->setAlternatingRowColors(true);
 
     for (int ri = 0; ri < rows.size(); ++ri) {
+        int bestCol = -1;
+        double bestVal = 0.0;
         for (int ci = 0; ci < drivers.size(); ++ci) {
             const double v = rows[ri].get(drivers[ci]);
             auto *item = new QTableWidgetItem(
                 v > 0.0 ? QString::number(v, 'f', rows[ri].dec) : QStringLiteral("–"));
             item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
             tbl->setItem(ri, ci, item);
+            if (rows[ri].better != 0 && v > 0.0) {
+                if (bestCol < 0 || (rows[ri].better > 0 ? v > bestVal : v < bestVal)) {
+                    bestCol = ci;
+                    bestVal = v;
+                }
+            }
+        }
+        // Mark the winner of clearly-directional rows (needs a real contest)
+        if (bestCol >= 0 && drivers.size() >= 2) {
+            auto *win = tbl->item(ri, bestCol);
+            QFont f = win->font(); f.setBold(true);
+            win->setFont(f);
+            win->setForeground(QBrush(Theme::instance().accent()));
         }
     }
     tbl->resizeColumnsToContents();
     tbl->resizeRowsToContents();
     vb->addWidget(tbl);
 
+    auto *hint = new QLabel("Highlighted = best value where direction is unambiguous "
+                            "(lower fs/Lₑ, higher BL/Xmax/Xlim/Pe/SPL).");
+    hint->setStyleSheet(themed("color:%muted%; font-size:8pt;"));
+    hint->setWordWrap(true);
+    vb->addWidget(hint);
+
     auto *bb = new QDialogButtonBox(QDialogButtonBox::Close);
+    auto *btnCopy = bb->addButton("Copy as CSV", QDialogButtonBox::ActionRole);
+    connect(btnCopy, &QPushButton::clicked, dlg, [&rows, drivers] {
+        QString csv = "Parameter";
+        for (const auto &d : drivers)
+            csv += "," + d.make + " " + d.model;
+        csv += "\n";
+        for (const auto &row : rows) {
+            csv += row.unit[0] ? QString("%1 (%2)").arg(row.name, row.unit)
+                               : QString(row.name);
+            for (const auto &d : drivers) {
+                const double v = row.get(d);
+                csv += "," + (v > 0.0 ? QString::number(v, 'f', row.dec) : QString());
+            }
+            csv += "\n";
+        }
+        QGuiApplication::clipboard()->setText(csv);
+    });
     connect(bb, &QDialogButtonBox::rejected, dlg, &QDialog::reject);
     vb->addWidget(bb);
 
-    // Wide enough for all columns without manual stretching
-    dlg->resize(220 + 130 * drivers.size(), 560);
+    // Size so every parameter row is visible without scrolling.
+    int tblH = tbl->horizontalHeader()->height() + 2 * tbl->frameWidth();
+    for (int ri = 0; ri < tbl->rowCount(); ++ri)
+        tblH += tbl->rowHeight(ri);
+    dlg->resize(230 + 130 * drivers.size(), tblH + 110);
     dlg->exec();
     dlg->deleteLater();
 }

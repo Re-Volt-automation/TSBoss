@@ -35,33 +35,44 @@ static QDoubleSpinBox *mkSpin(double lo, double hi, int dec,
     s->setSingleStep(step);
     s->setSuffix(sfx);
     s->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    if (lo <= 0.0) s->setSpecialValueText("—");   // 0 = not provided
     return s;
 }
 
-// Style used by all "apply computed value" buttons
-static const char *kSuggestBtnStyleSpl =
-    "QPushButton{"
-    "  padding:2px 8px; font-size:9pt; font-weight:bold;"
-    "  background:#1a6080; color:white;"
-    "  border:none; border-radius:3px;"
-    "}"
-    "QPushButton:hover  { background:#2a80a0; }"
-    "QPushButton:pressed{ background:#0a4060; }"
-    "QPushButton:disabled{"
-    "  background:#e8e8e8; color:#aaa; font-weight:normal;"
-    "}";
+// Style used by all "apply computed value" buttons.
+// Functions (not statics) so themed() runs after the app/theme exist; the
+// disabled state is a quiet placeholder, not a broken-looking grey pill.
+static QString suggestBtnStyleSpl()
+{
+    return themed(
+        "QPushButton{"
+        "  padding:2px 8px; font-size:9pt; font-weight:bold;"
+        "  background:#2e86ab; color:white;"
+        "  border:none; border-radius:3px;"
+        "}"
+        "QPushButton:hover  { background:#3a9cc4; }"
+        "QPushButton:pressed{ background:#1f6a8a; }"
+        "QPushButton:disabled{"
+        "  background:transparent; color:%disabled%;"
+        "  border:1px dashed %border2%; font-weight:normal;"
+        "}");
+}
 
-static const char *kSuggestBtnStyle =
-    "QPushButton{"
-    "  padding:2px 8px; font-size:9pt; font-weight:bold;"
-    "  background:#6b2a40; color:white;"
-    "  border:none; border-radius:3px;"
-    "}"
-    "QPushButton:hover  { background:#8b3a50; }"
-    "QPushButton:pressed{ background:#4a1a2e; }"
-    "QPushButton:disabled{"
-    "  background:#e8e8e8; color:#aaa; font-weight:normal;"
-    "}";
+static QString suggestBtnStyle()
+{
+    return themed(
+        "QPushButton{"
+        "  padding:2px 8px; font-size:9pt; font-weight:bold;"
+        "  background:#6b2a40; color:white;"
+        "  border:none; border-radius:3px;"
+        "}"
+        "QPushButton:hover  { background:#8b3a50; }"
+        "QPushButton:pressed{ background:#4a1a2e; }"
+        "QPushButton:disabled{"
+        "  background:transparent; color:%disabled%;"
+        "  border:1px dashed %border2%; font-weight:normal;"
+        "}");
+}
 
 // Creates a row widget: [spinbox | suggest-button | formula-label]
 // btn and fmtLbl are set to the newly created widgets.
@@ -78,10 +89,10 @@ static QWidget *mkFieldRow(QDoubleSpinBox *spin,
     btn = new QPushButton("—");
     btn->setEnabled(false);
     btn->setMinimumWidth(80);
-    btn->setStyleSheet(kSuggestBtnStyle);
+    btn->setStyleSheet(suggestBtnStyle());
 
     fmtLbl = new QLabel(formula);
-    fmtLbl->setStyleSheet("color:#777; font-size:8.5pt; font-style:italic;");
+    fmtLbl->setStyleSheet(themed("color:%muted%; font-size:8.5pt; font-style:italic;"));
 
     hl->addWidget(spin);
     hl->addWidget(btn);
@@ -103,16 +114,16 @@ static QWidget *mkFieldRow2(QDoubleSpinBox *spin,
     btn1 = new QPushButton("—");
     btn1->setEnabled(false);
     btn1->setMinimumWidth(80);
-    btn1->setStyleSheet(kSuggestBtnStyle);
+    btn1->setStyleSheet(suggestBtnStyle());
     fmt1 = new QLabel(f1);
-    fmt1->setStyleSheet("color:#777; font-size:8.5pt; font-style:italic;");
+    fmt1->setStyleSheet(themed("color:%muted%; font-size:8.5pt; font-style:italic;"));
 
     btn2 = new QPushButton("—");
     btn2->setEnabled(false);
     btn2->setMinimumWidth(80);
-    btn2->setStyleSheet(kSuggestBtnStyleSpl);
+    btn2->setStyleSheet(suggestBtnStyleSpl());
     fmt2 = new QLabel(f2);
-    fmt2->setStyleSheet("color:#1a6080; font-size:8.5pt; font-style:italic;");
+    fmt2->setStyleSheet("color:#2e86ab; font-size:8.5pt; font-style:italic;");
 
     hl->addWidget(spin);
     hl->addWidget(btn1);
@@ -179,7 +190,7 @@ void DatasheetEntryWidget::buildUi()
         "inline — click it to apply the calculated value. "
         "Use <b>Integrity Check</b> to verify all values are self-consistent before saving.");
     sub->setWordWrap(true);
-    sub->setStyleSheet("color:#555; margin-bottom:4px;");
+    sub->setStyleSheet(themed("color:%muted%; margin-bottom:4px;"));
     vbox->addWidget(sub);
 
     // ── Driver Identification ─────────────────────────────────────
@@ -211,7 +222,7 @@ void DatasheetEntryWidget::buildUi()
         form->setLabelAlignment(Qt::AlignRight);
         form->setSpacing(8);
 
-        m_Re    = mkSpin(0.10, 200.0, 3, 0.01, " Ω");
+        m_Re    = mkSpin(0.0,  200.0, 3, 0.01, " Ω");
         m_Le_mH = mkSpin(0.00, 100.0, 3, 0.01, " mH");
 
         auto *reRow = mkFieldRow(m_Re, m_btnRe, m_fmtRe, "= BL²·Qes / (2π·fₛ·mms)");
@@ -252,9 +263,9 @@ void DatasheetEntryWidget::buildUi()
         m_rbDVC = new QRadioButton("DVC – Dual Voice Coil");
         m_rbSVC->setChecked(true);
 
-        const QString rbStyle =
-            "QRadioButton { color:#3a3a3a; padding:3px 6px; border-radius:4px; }"
-            "QRadioButton:checked { background:#6b2a40; color:white; font-weight:bold; }";
+        const QString rbStyle = themed(
+            "QRadioButton { color:%text2%; padding:3px 6px; border-radius:4px; }"
+            "QRadioButton:checked { background:%accent%; color:%onAccent%; font-weight:bold; }");
         m_rbSVC->setStyleSheet(rbStyle);
         m_rbDVC->setStyleSheet(rbStyle);
 
@@ -282,7 +293,7 @@ void DatasheetEntryWidget::buildUi()
         dvcRow->addStretch();
 
         m_perCoilReLbl = new QLabel("Per-coil Rvc: —");
-        m_perCoilReLbl->setStyleSheet("color:#555; font-size:9pt; padding-left:4px;");
+        m_perCoilReLbl->setStyleSheet(themed("color:%muted%; font-size:9pt; padding-left:4px;"));
 
         dvcVl->addLayout(dvcRow);
         dvcVl->addWidget(m_perCoilReLbl);
@@ -303,12 +314,12 @@ void DatasheetEntryWidget::buildUi()
 
     // ── Resonance & Q-factors ─────────────────────────────────────
     {
-        auto *box  = new QGroupBox("Resonance & Q-factors");
+        auto *box  = new QGroupBox("Resonance && Q-factors");
         auto *form = new QFormLayout(box);
         form->setLabelAlignment(Qt::AlignRight);
         form->setSpacing(8);
 
-        m_fs  = mkSpin(1.0,  2000.0, 2, 0.1, " Hz");
+        m_fs  = mkSpin(0.0,  2000.0, 2, 0.1, " Hz");
         m_Qms = mkSpin(0.00, 100.0,  3, 0.01, "");
         m_Qes = mkSpin(0.00, 100.0,  3, 0.01, "");
         m_Qts = mkSpin(0.00, 100.0,  3, 0.01, "");
@@ -506,7 +517,7 @@ void DatasheetEntryWidget::buildUi()
 
     // ── Geometry & Volume ─────────────────────────────────────────
     {
-        auto *box  = new QGroupBox("Geometry & Equivalent Volume");
+        auto *box  = new QGroupBox("Geometry && Equivalent Volume");
         auto *form = new QFormLayout(box);
         form->setLabelAlignment(Qt::AlignRight);
         form->setSpacing(8);
@@ -556,7 +567,7 @@ void DatasheetEntryWidget::buildUi()
         });
 
         auto *note = mkFormLabel("Enter either Dᵈ or Sᵈ — the other is computed automatically.");
-        note->setStyleSheet("color:#666; font-size:8pt; font-style:italic;");
+        note->setStyleSheet(themed("color:%muted%; font-size:8pt; font-style:italic;"));
 
         addRow(form, "Dᵈ – effective piston diameter:", ddRow);
         addRow(form, "Sᵈ – effective piston area:",     sdRow);
@@ -617,7 +628,7 @@ void DatasheetEntryWidget::buildUi()
             "1W / 1m  (half-space, ρ=1.2 kg/m³, c=343 m/s). "
             "Enter from datasheet or click ← to compute. "
             "Blue buttons on Qes, Vas and BL derive those values from this SPL.");
-        note->setStyleSheet("color:#666; font-size:8pt; font-style:italic;");
+        note->setStyleSheet(themed("color:%muted%; font-size:8pt; font-style:italic;"));
         note->setWordWrap(true);
 
         addRow(form, "SPL – reference sensitivity:", splRow);
@@ -671,7 +682,7 @@ void DatasheetEntryWidget::buildUi()
         m_hintVd = new QLabel;
         m_hintVd->setWordWrap(true);
         m_hintVd->setTextFormat(Qt::RichText);
-        m_hintVd->setStyleSheet("color:#555; font-size:8.5pt; font-style:italic;");
+        m_hintVd->setStyleSheet(themed("color:%muted%; font-size:8.5pt; font-style:italic;"));
         m_hintVd->setText("<i style='color:#999;'>Enter Sᵈ (or Dᵈ) and Xmax to compute Vd</i>");
 
         addRow(form, "Xmax – peak linear excursion:",  m_Xmax);
