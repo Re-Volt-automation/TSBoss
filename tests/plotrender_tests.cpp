@@ -97,7 +97,6 @@ int main(int argc, char **argv)
     const QImage vp  = renderPlot<VoltagePlot>     ("VoltagePlot",      models);
     const QImage exc = renderPlot<ExcursionPlot>   ("ExcursionPlot",    models);
     const QImage pv  = renderPlot<PortVelocityPlot>("PortVelocityPlot", models);
-    const QImage z   = renderPlot<ImpedancePlot>   ("ImpedancePlot",    models);
     const QImage mx  = renderPlot<MaxSplPlot>      ("MaxSplPlot",       models);
 
     // Same models with a 24 dB/oct subsonic filter at 25 Hz engaged —
@@ -116,7 +115,6 @@ int main(int argc, char **argv)
         printHash("VoltagePlot",      vp);
         printHash("ExcursionPlot",    exc);
         printHash("PortVelocityPlot", pv);
-        printHash("ImpedancePlot",    z);
         printHash("MaxSplPlot",       mx);
     }
     if (!dumpDir.isEmpty()) {
@@ -125,7 +123,6 @@ int main(int argc, char **argv)
         vp .save(dumpDir + "/VoltagePlot.png");
         exc.save(dumpDir + "/ExcursionPlot.png");
         pv .save(dumpDir + "/PortVelocityPlot.png");
-        z  .save(dumpDir + "/ImpedancePlot.png");
         mx .save(dumpDir + "/MaxSplPlot.png");
         fspl.save(dumpDir + "/ResponsePlot_HPF.png");
         fgd .save(dumpDir + "/GroupDelayPlot_HPF.png");

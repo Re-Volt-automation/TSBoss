@@ -237,6 +237,18 @@ static QDoubleSpinBox *mkWheelSpin(double lo, double hi, int dec,
     return s;
 }
 
+// Small muted word appended to a sealed Qtc when it sits clearly outside
+// the usual 0.5–1.1 window — saves newcomers a trip to a textbook.
+static QString qtcQualitySuffix(double qtc)
+{
+    const char *word = nullptr;
+    if      (qtc > 0.0 && qtc < 0.5) word = "overdamped";
+    else if (qtc > 1.1)              word = "underdamped";
+    if (!word) return {};
+    return QString("  <span style='font-size:8pt;color:%1;'>%2</span>")
+           .arg(hex(Theme::instance().textMuted()), word);
+}
+
 static QPixmap colorSwatch(const QColor &c, int sz = 12)
 {
     QPixmap px(sz, sz);
@@ -321,6 +333,11 @@ void EnclosureWidget::buildUi()
     m_modelList->setDragDropMode(QAbstractItemView::InternalMove);
     m_modelList->setDefaultDropAction(Qt::MoveAction);
     m_modelList->setSelectionMode(QAbstractItemView::SingleSelection);
+    // Long auto-names elide in place (full name in the tooltip) instead of
+    // growing a horizontal scrollbar.
+    m_modelList->setTextElideMode(Qt::ElideMiddle);
+    m_modelList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_modelList->setWordWrap(false);
     leftVb->addWidget(m_modelList, 1);
 
     // Model buttons — compact secondary style
@@ -422,7 +439,6 @@ void EnclosureWidget::buildUi()
     m_vpPlot   = new VoltagePlot;
     m_excPlot  = new ExcursionPlot;
     m_pvPlot   = new PortVelocityPlot;
-    m_zPlot    = new ImpedancePlot;
     m_maxPlot  = new MaxSplPlot;
 
     // Helper: make a power-spinbox row (shared across Voltage, Excursion, Port Velocity tabs)
@@ -607,11 +623,10 @@ void EnclosureWidget::buildUi()
     m_plotTabs->setObjectName("encPlotTabs");
     m_plotTabs->addTab(splTab,    "SPL");           // index 0
     m_plotTabs->addTab(m_gdPlot,  "GROUP DELAY");   // index 1
-    m_plotTabs->addTab(voltTab,   "POWER");         // index 2 (voltage + current)
+    m_plotTabs->addTab(voltTab,   "POWER / Z");     // index 2 (voltage + current + impedance)
     m_plotTabs->addTab(excTab,    "EXCURSION");     // index 3
     m_plotTabs->addTab(pvTab,     "PORT V");        // index 4
-    m_plotTabs->addTab(m_zPlot,   "IMPEDANCE");     // index 5 (all enclosure types)
-    m_plotTabs->addTab(m_maxPlot, "MAX SPL");       // index 6 (needs driver Xmax)
+    m_plotTabs->addTab(m_maxPlot, "MAX SPL");       // index 5 (needs driver Xmax)
     m_plotTabs->setTabEnabled(4, false);              // enabled only for vented
 
     // Bottom parameter strip
@@ -684,7 +699,7 @@ void EnclosureWidget::buildUi()
         // Added cone mass row (e.g. felt rings, mass-loading test)
         auto *amRow = new QHBoxLayout;
         amRow->setSpacing(4);
-        auto *amLbl = mkFormLabel("Added m:");
+        auto *amLbl = mkFormLabel("Added mass:");
         amLbl->setToolTip(
             "Extra cone mass (e.g. felt ring, mass-loading test).\n"
             "Shifts fₛ, Qts, Qes, Qms; Vas / Cms / BL / Sd / Rₑ unchanged.");
@@ -752,8 +767,8 @@ void EnclosureWidget::buildUi()
 
         // Recommended sealed enclosure label (visible when sealed type selected)
         m_lblOptSealed = new QLabel;
-        m_lblOptSealed->setStyleSheet(
-            "color:#7DD3FC; font-family:'IBM Plex Mono',monospace; font-size:8pt;");
+        m_lblOptSealed->setStyleSheet(themed(
+            "color:%accentLt%; font-family:'IBM Plex Mono',monospace; font-size:8pt;"));
         m_lblOptSealed->setWordWrap(true);
         m_lblOptSealed->setVisible(false);
 
@@ -766,12 +781,14 @@ void EnclosureWidget::buildUi()
         col->addLayout(amRow);
         col->addWidget(m_addedMassEffLbl);
         col->addLayout(hpfRow);
+        // Hint sits above the alignment buttons it relates to, so it is not
+        // the first thing to scroll out of view in a short window.
+        col->addWidget(m_lblOptSealed);
         col->addWidget(m_btnBessel);
         col->addWidget(m_btnB2);
         col->addWidget(m_btnB4);
         col->addWidget(m_btnBP4);
         col->addWidget(m_btnBP6);
-        col->addWidget(m_lblOptSealed);
         col->addStretch();
         paramMain->addLayout(col);
 
@@ -1039,22 +1056,34 @@ void EnclosureWidget::buildUi()
             return l;
         };
         auto addResRow = [&](int r, const QString &lbl, QLabel *&out,
-                             const QString &unit, QLabel *&lblOut) {
+                             const QString &unit, QLabel *&lblOut,
+                             const QString &tip = QString()) {
             lblOut = mkResultLbl(lbl);
             out = mkBigValue();
             auto *u = new QLabel(unit);
             u->setObjectName("ResultUnit");
+            if (!tip.isEmpty()) { lblOut->setToolTip(tip); out->setToolTip(tip); }
             grid->addWidget(lblOut, r, 0);
             grid->addWidget(out,    r, 1);
             grid->addWidget(u,      r, 2);
         };
         QLabel *dummy = nullptr;
-        addResRow(0, "α:",    m_resAlpha, "",    dummy);
-        addResRow(1, "Fc:",   m_resFc,    "Hz",  m_resLblFc);
-        addResRow(2, "Qtc:",  m_resQtc,   "",    m_resLblQtc);
-        addResRow(3, "f₋₃:", m_resF3,    "Hz",  dummy);
-        addResRow(4, "η₀:",  m_resEta,   "%",   dummy);
-        addResRow(5, "SPL:",  m_resSpl,   "dB",  dummy);
+        addResRow(0, "α:",    m_resAlpha, "",    dummy,
+                  "Compliance ratio α = Vas / Vb — air-spring stiffness relative "
+                  "to the driver suspension.");
+        addResRow(1, "Fc:",   m_resFc,    "Hz",  m_resLblFc,
+                  "System resonance: Fc (sealed), fb (vented tuning) or fb_f "
+                  "(bandpass front chamber).");
+        addResRow(2, "Qtc:",  m_resQtc,   "",    m_resLblQtc,
+                  "Total system Q at Fc. 0.707 = maximally flat (B2); "
+                  "below ≈0.5 overdamped, above ≈1.1 underdamped/peaky. "
+                  "For bandpass this row shows passband ripple instead.");
+        addResRow(3, "f₋₃:", m_resF3,    "Hz",  dummy,
+                  "Low-frequency −3 dB corner of the modelled response.");
+        addResRow(4, "η₀:",  m_resEta,   "%",   dummy,
+                  "Reference efficiency — acoustic output per electrical watt.");
+        addResRow(5, "SPL:",  m_resSpl,   "dB",  dummy,
+                  "Reference sensitivity at 1 W / 1 m implied by η₀.");
         chambersMain->addLayout(grid);
     }
     chambersMain->addStretch();
@@ -1288,7 +1317,10 @@ void EnclosureWidget::buildUi()
             m_portLenLbl->setStyleSheet(themed(
                 "color:%accentLt%; font-family:'IBM Plex Mono',monospace;"
                 "font-size:11pt; font-weight:500;"));
-            addR("(per port):",         m_portLenEachLbl);
+            m_portLenEachRowLbl = mkFormLabel("(per port):");
+            m_portLenEachLbl    = mkValue("–");
+            g->addWidget(m_portLenEachRowLbl, row,   0, Qt::AlignRight);
+            g->addWidget(m_portLenEachLbl,    row++, 1, Qt::AlignLeft);
             m_portLenEachLbl->setStyleSheet(themed(
                 "color:%muted%; font-family:'IBM Plex Mono',monospace; font-size:8.5pt;"));
             addR("2nd harmonic:",       m_portF2HLbl);
@@ -1669,6 +1701,7 @@ void EnclosureWidget::buildUi()
     rightSplit->setCollapsible(0, false);
     rightSplit->setCollapsible(1, false);
     rightSplit->setHandleWidth(1);
+    rightSplit->setSizes({540, 380});   // params get enough initial height
     rightSplit->setStyleSheet(themed("QSplitter::handle{background:%border%;}"
                               "QSplitter::handle:hover{background:%accent%;}"));
 
@@ -1745,23 +1778,26 @@ void EnclosureWidget::updateModelList()
                                swatchColor.hslSaturation() / 4,
                                swatchColor.lightness() / 2 + 30);
         }
-        auto *item = new QListWidgetItem(
-            QIcon(colorSwatch(swatchColor, 14)),
-            QString("%1  %2").arg(m.name, tag));
+        const QString fullText = QString("%1  %2").arg(m.name, tag);
+        auto *item = new QListWidgetItem(QIcon(colorSwatch(swatchColor, 14)), fullText);
         item->setData(Qt::UserRole, i);
         if (!m.visible) {
             item->setForeground(Theme::instance().textDisabled());
             QFont f = item->font(); f.setItalic(true); item->setFont(f);
-            item->setToolTip("Hidden — click the swatch to show on plots");
+            item->setToolTip(fullText + "\nHidden — click the swatch to show on plots");
         } else {
             item->setForeground(Theme::instance().textPrimary());
-            item->setToolTip("Visible — click the swatch to hide from plots");
+            item->setToolTip(fullText + "\nVisible — click the swatch to hide from plots");
         }
         m_modelList->addItem(item);
     }
     if (m_activeIdx >= 0 && m_activeIdx < m_models.size())
         m_modelList->setCurrentRow(m_activeIdx);
     m_modelList->blockSignals(false);
+
+    // No models → grey out the whole parameter area instead of showing
+    // placeholder minima that read like real values.
+    if (m_paramTabs) m_paramTabs->setEnabled(!m_models.isEmpty());
 }
 
 void EnclosureWidget::onModelSelected(int row)
@@ -1829,6 +1865,7 @@ void EnclosureWidget::addDriverModel(int driverId)
     m.Sd_cm2    = r.Sd * 10000.0;
     m.xmax_mm   = r.Xmax;
     m.xlim_mm   = r.Xlim;
+    m.pe_W      = r.Pe;
     m.isDVC     = r.isDVC;
     m.dvcWiring = r.dvcWiring;
     m_models.append(m);
@@ -1961,6 +1998,7 @@ void EnclosureWidget::onDriverChanged(int index)
     model.Sd_cm2 = r.Sd * 10000.0;
     model.xmax_mm= r.Xmax;
     model.xlim_mm= r.Xlim;
+    model.pe_W   = r.Pe;
     model.isDVC     = r.isDVC;
     model.dvcWiring = r.dvcWiring;
 
@@ -2394,7 +2432,8 @@ void EnclosureWidget::updatePortLength()
 {
     auto clearOut = [this]{
         if (m_portLenLbl)      m_portLenLbl     ->setText("–");
-        if (m_portLenEachLbl)  m_portLenEachLbl ->setText("–");
+        if (m_portLenEachLbl)  { m_portLenEachLbl->setText("–"); m_portLenEachLbl->setVisible(false); }
+        if (m_portLenEachRowLbl) m_portLenEachRowLbl->setVisible(false);
         if (m_portAreaLbl)     m_portAreaLbl    ->setText("–");
         if (m_portSurfAreaLbl) m_portSurfAreaLbl->setText("–");
         if (m_portVolInnerLbl) m_portVolInnerLbl->setText("–");
@@ -2545,18 +2584,19 @@ void EnclosureWidget::updatePortLength()
     }
 
     // ── Port length display ──────────────────────────────────────
+    // The "(per port)" row only exists with several ports; for a single
+    // port it is hidden rather than showing a dash.
+    const bool perPortRow = (Lp > 0 && N > 1);
+    if (m_portLenEachLbl)    m_portLenEachLbl   ->setVisible(perPortRow);
+    if (m_portLenEachRowLbl) m_portLenEachRowLbl->setVisible(perPortRow);
     if (Lp <= 0) {
         m_portLenLbl->setText("<span style='color:#c0392b;'>Dimensions too large</span>");
         if (m_portLenEachLbl) m_portLenEachLbl->setText("–");
     } else {
         const double Lp_mm = Lp * 1000.0;
         m_portLenLbl->setText(QString("<b>%1 mm</b>").arg(Lp_mm, 0, 'f', 0));
-        if (m_portLenEachLbl) {
-            if (N > 1)
-                m_portLenEachLbl->setText(QString("%1 mm each").arg(Lp_mm, 0, 'f', 0));
-            else
-                m_portLenEachLbl->setText("–");
-        }
+        if (m_portLenEachLbl && N > 1)
+            m_portLenEachLbl->setText(QString("%1 mm each").arg(Lp_mm, 0, 'f', 0));
     }
 
     // ── 2nd pipe harmonic ────────────────────────────────────────
@@ -3071,7 +3111,8 @@ void EnclosureWidget::loadModelIntoFields(int index)
     } else {
         m_resAlpha->setText(isIB(model) ? "–" : (model.alpha > 0 ? fmt(model.alpha, 3) : "–"));
         m_resFc   ->setText(model.Fc > 0 ? fmt(model.Fc, 2) : "–");
-        m_resQtc  ->setText(isVented(model) ? "–" : (model.Qtc > 0 ? fmt(model.Qtc, 3) : "–"));
+        m_resQtc  ->setText(isVented(model) ? "–"
+                            : (model.Qtc > 0 ? fmt(model.Qtc, 3) + qtcQualitySuffix(model.Qtc) : "–"));
         m_resF3   ->setText(model.f3 > 0 ? fmt(model.f3, 2) : "–");
         m_resEta  ->setText(model.eta > 0 ? fmt(model.eta * 100.0, 3) : "–");
         m_resSpl  ->setText(model.spl > 0 ? fmt(model.spl, 2) : "–");
@@ -3122,7 +3163,8 @@ void EnclosureWidget::clearFields()
     if (m_resQtc)     m_resQtc->setVisible(true);
     if (m_vcTypeLbl)  m_vcTypeLbl->setText("Voice coil: –");
     if (m_portLenLbl)      m_portLenLbl->setText("–");
-    if (m_portLenEachLbl)  m_portLenEachLbl->setText("");
+    if (m_portLenEachLbl)  { m_portLenEachLbl->setText(""); m_portLenEachLbl->setVisible(false); }
+    if (m_portLenEachRowLbl) m_portLenEachRowLbl->setVisible(false);
     if (m_portF2HLbl)      m_portF2HLbl->setText("–");
     if (m_portAreaLbl)     m_portAreaLbl->setText("–");
     if (m_portSurfAreaLbl) m_portSurfAreaLbl->setText("–");
@@ -3284,7 +3326,8 @@ void EnclosureWidget::recalculate(int index)
         auto fmt = [](double v, int d){ return QString::number(v,'f',d); };
         m_resAlpha->setText(isIB(m) ? "–" : fmt(m.alpha, 3));
         m_resFc   ->setText(m.Fc > 0 ? fmt(m.Fc, 2) : "–");
-        m_resQtc  ->setText(isVented(m) ? "–" : (m.Qtc > 0 ? fmt(m.Qtc, 3) : "–"));
+        m_resQtc  ->setText(isVented(m) ? "–"
+                            : (m.Qtc > 0 ? fmt(m.Qtc, 3) + qtcQualitySuffix(m.Qtc) : "–"));
         m_resF3   ->setText(m.f3 > 0 ? fmt(m.f3, 2) : "–");
         m_resEta  ->setText(fmt(m.eta * 100.0, 3));
         m_resSpl  ->setText(fmt(m.spl, 2));
@@ -3329,7 +3372,6 @@ void EnclosureWidget::updatePlot()
     m_vpPlot  ->setModels(visible, visActive);
     m_excPlot ->setModels(visible, visActive);
     m_pvPlot  ->setModels(visible, visActive);
-    m_zPlot   ->setModels(visible, visActive);
     m_maxPlot ->setModels(visible, visActive);
 }
 

@@ -43,6 +43,74 @@ void PlotBase::mouseMoveEvent(QMouseEvent *e) { plotUpdateCursor(this, e, m_curs
 void PlotBase::leaveEvent(QEvent *)           { m_cursorFreq = -1.0; update(); }
 
 // ─────────────────────────────────────────────────────────────────
+//  Legend / marker helpers (shared by every plot)
+// ─────────────────────────────────────────────────────────────────
+
+void drawLegend(QPainter &p, const QRectF &area,
+                const QVector<LegendEntry> &entries, bool anchorRight)
+{
+    if (entries.isEmpty()) return;
+
+    QFont main;  main.setPointSize(8);
+    QFont mainB = main; mainB.setBold(true);
+    QFont subF;  subF.setPointSize(7);
+
+    constexpr int sampleMain = 20, sampleSub = 16, gap = 4, subIndent = 8;
+    qreal w = 0;
+    for (const auto &e : entries) {
+        const QFontMetricsF fm(e.sub ? subF : (e.active ? mainB : main));
+        const int lead = e.sub ? subIndent + sampleSub : sampleMain;
+        w = std::max(w, lead + gap + fm.horizontalAdvance(e.text));
+    }
+    w = std::min(w, area.width() * 0.45);
+    const qreal lx = anchorRight ? area.right() - w - 6 : area.left() + 8;
+    qreal ly = area.top() + 8;
+
+    for (const auto &e : entries) {
+        const int  rowH   = e.sub ? 13 : 16;
+        const int  lead   = e.sub ? subIndent : 0;
+        const int  sample = e.sub ? sampleSub : sampleMain;
+        QColor c = e.color;
+        if (e.sub)          c.setAlpha(e.active ? 160 : 90);
+        else if (!e.active) c.setAlpha(140);
+        p.setPen(QPen(c, e.sub ? (e.active ? 1.6 : 1.1)
+                               : (e.active ? 2.5 : 1.5), e.style));
+        p.drawLine(QPointF(lx + lead, ly + 6), QPointF(lx + lead + sample, ly + 6));
+
+        const QFont &tf = e.sub ? subF : (e.active ? mainB : main);
+        p.setFont(tf);
+        p.setPen(e.sub ? (e.active ? CLR_GREY() : CLR_GREY_LT())
+                       : (e.active ? CLR_GREY_DK() : CLR_GREY()));
+        const QFontMetricsF fm(tf);
+        const qreal tw = w - lead - sample - gap;
+        p.drawText(QRectF(lx + lead + sample + gap, ly, tw, rowH),
+                   Qt::AlignLeft | Qt::AlignVCenter,
+                   fm.elidedText(e.text, Qt::ElideMiddle, tw));
+        ly += rowH;
+    }
+}
+
+void drawMarkerLabel(QPainter &p, const QRectF &area, double x, double yTop,
+                     const QColor &color, const QString &text)
+{
+    QFont bf; bf.setPointSize(8); bf.setBold(true);
+    const QFontMetricsF fm(bf);
+    QRectF r(0, 0, fm.horizontalAdvance(text) + 8, fm.height() + 2);
+    r.moveTop(yTop);
+    r.moveLeft(x + 4 + r.width() > area.right() ? x - 4 - r.width() : x + 4);
+
+    QColor bg = Theme::instance().plotBg(); bg.setAlpha(215);
+    p.save();
+    p.setPen(Qt::NoPen);
+    p.setBrush(bg);
+    p.drawRoundedRect(r, 2, 2);
+    p.restore();
+    p.setFont(bf);
+    p.setPen(color);
+    p.drawText(r, Qt::AlignCenter, text);
+}
+
+// ─────────────────────────────────────────────────────────────────
 //  Cursor helpers (shared by every plot)
 // ─────────────────────────────────────────────────────────────────
 

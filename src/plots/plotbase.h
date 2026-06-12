@@ -43,6 +43,26 @@ protected:
     std::optional<double> m_yMin, m_yMax;
 };
 
+/// One legend row. `sub` rows are indented small entries used for curve
+/// decompositions (Cone/Port) and axis keys (Voltage/Current).
+struct LegendEntry {
+    QColor       color;
+    QString      text;
+    Qt::PenStyle style  = Qt::SolidLine;
+    bool         active = false;
+    bool         sub    = false;
+};
+
+/// Legend column at the top of the plot area. Width adapts to the longest
+/// entry (clamped to 45% of the area width); texts elide instead of clipping.
+void drawLegend(QPainter &p, const QRectF &area,
+                const QVector<LegendEntry> &entries, bool anchorRight = true);
+
+/// Bold marker caption on a translucent plot-bg chip so it stays readable
+/// where it crosses a curve. Flips to the left of x near the right edge.
+void drawMarkerLabel(QPainter &p, const QRectF &area, double x, double yTop,
+                     const QColor &color, const QString &text);
+
 /// Track the cursor frequency from a mouse move inside the plot area.
 void plotUpdateCursor(QWidget *w, QMouseEvent *e, double &cursorFreq);
 

@@ -190,6 +190,7 @@ private:
     QLabel            *m_portVolDisplLbl= nullptr;  ///< vol displaced in box (round, liters)
     QLabel            *m_portLenLbl     = nullptr;
     QLabel            *m_portLenEachLbl = nullptr;  ///< per-port length when >1 port
+    QLabel            *m_portLenEachRowLbl = nullptr; ///< its row label — row hidden for 1 port
     QLabel            *m_portF2HLbl     = nullptr;  ///< 2nd pipe harmonic frequency
 
     // Chambers tab — rear port tuning (BP6 only: rear chamber is ported)
@@ -231,7 +232,6 @@ private:
     VoltagePlot      *m_vpPlot   = nullptr;
     ExcursionPlot    *m_excPlot  = nullptr;
     PortVelocityPlot *m_pvPlot   = nullptr;
-    ImpedancePlot    *m_zPlot    = nullptr;
     MaxSplPlot       *m_maxPlot  = nullptr;
     // Alignment suggestion buttons (shown below Type combo)
     QWidget     *m_alignRow      = nullptr;

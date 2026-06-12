@@ -285,9 +285,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
 
     // Legend (top-right of plot area)
     {
-        QFont lf; lf.setPointSize(8); p.setFont(lf);
-        const int lx = static_cast<int>(area.right()) - 180;
-        int ly = static_cast<int>(area.top()) + 8;
+        QVector<LegendEntry> leg;
         for (int i = 0; i < m_models.size(); ++i) {
             const auto &m = m_models[i];
             const bool bp = isBandpass(m);
@@ -295,36 +293,17 @@ void ResponsePlot::paintEvent(QPaintEvent *)
             if (vt ? (!hasPortedData(m) || m.spl <= 0)
                 : bp ? ((isBP6(m) ? !hasBP6Data(m) : !hasBP4Data(m)) || m.peakSpl <= 0)
                 : (m.Fc <= 0 || m.Qtc <= 0)) continue;
-            QColor c = m.color;
-            bool active = (i == m_activeIdx);
-            if (!active) c.setAlpha(140);
-            // Model name row (solid line)
-            p.setPen(QPen(c, active ? 2.5 : 1.5, Qt::SolidLine));
-            p.drawLine(QPoint(lx, ly + 6), QPoint(lx + 20, ly + 6));
-            p.setPen(active ? CLR_GREY_DK() : CLR_GREY());
-            QFont tf; tf.setPointSize(8); tf.setBold(active); p.setFont(tf);
-            p.drawText(QRect(lx + 24, ly, 150, 14), Qt::AlignLeft | Qt::AlignVCenter,
-                       m.name);
-            ly += 16;
-            // Sub-entries for ported models
-            if (isVented(m)) {
-                QFont sf; sf.setPointSize(7); p.setFont(sf);
-                QColor cs = m.color; cs.setAlpha(active ? 160 : 90);
-                // Cone (dashed)
-                p.setPen(QPen(cs, active ? 1.6 : 1.1, Qt::DashLine));
-                p.drawLine(QPoint(lx + 8, ly + 5), QPoint(lx + 24, ly + 5));
-                p.setPen(active ? CLR_GREY() : CLR_GREY_LT());
-                p.drawText(QRect(lx + 28, ly, 140, 12), Qt::AlignLeft | Qt::AlignVCenter, "Cone");
-                ly += 13;
-                // Port (dotted)
-                p.setPen(QPen(cs, active ? 1.6 : 1.1, Qt::DotLine));
-                p.drawLine(QPoint(lx + 8, ly + 5), QPoint(lx + 24, ly + 5));
-                p.setPen(active ? CLR_GREY() : CLR_GREY_LT());
-                p.setFont(sf);
-                p.drawText(QRect(lx + 28, ly, 140, 12), Qt::AlignLeft | Qt::AlignVCenter, "Port");
-                ly += 13;
+            const bool active = (i == m_activeIdx);
+            leg.append({m.color, m.name, Qt::SolidLine, active, false});
+            if (vt) {
+                leg.append({m.color, "Cone", Qt::DashLine, active, true});
+                leg.append({m.color, "Port", Qt::DotLine,  active, true});
+            } else if (isBP6(m)) {
+                leg.append({m.color, "Front port", Qt::DotLine,  active, true});
+                leg.append({m.color, "Rear port",  Qt::DashLine, active, true});
             }
         }
+        drawLegend(p, area, leg);
     }
 
     // Key frequency markers for active model
@@ -340,30 +319,23 @@ void ResponsePlot::paintEvent(QPaintEvent *)
             QColor fc_clr = am.color; fc_clr.setAlpha(180);
             p.setPen(QPen(fc_clr, 1.2, Qt::DashLine));
             p.drawLine(QPointF(x, area.top()), QPointF(x, area.bottom()));
-            p.setPen(fc_clr);
-            QFont bf; bf.setPointSize(8); bf.setBold(true); p.setFont(bf);
-            p.drawText(QRectF(x + 4, area.top() + 4, 100, 14), Qt::AlignLeft, markerLabel);
+            drawMarkerLabel(p, area, x, area.top() + 4, fc_clr, markerLabel);
         }
         if (am.f3 > F_MIN && am.f3 < F_MAX) {
             const double x = xPx(am.f3);
             QColor f3_clr = am.color; f3_clr.setAlpha(140);
             p.setPen(QPen(f3_clr, 1.2, Qt::DashLine));
             p.drawLine(QPointF(x, area.top()), QPointF(x, area.bottom()));
-            p.setPen(f3_clr);
-            QFont bf; bf.setPointSize(8); bf.setBold(true); p.setFont(bf);
-            p.drawText(QRectF(x + 4, area.top() + 20, 100, 14),
-                       Qt::AlignLeft, QString("f₋₃ = %1 Hz").arg(am.f3,0,'f',1));
+            drawMarkerLabel(p, area, x, area.top() + 22, f3_clr,
+                            QString("f₋₃ = %1 Hz").arg(am.f3,0,'f',1));
         }
         if (isVented(am) && am.portF2H > F_MIN && am.portF2H < F_MAX) {
             const double x = xPx(am.portF2H);
             QColor h2_clr = am.color; h2_clr.setAlpha(110);
             p.setPen(QPen(h2_clr, 1.0, Qt::DotLine));
             p.drawLine(QPointF(x, area.top()), QPointF(x, area.bottom()));
-            p.setPen(h2_clr);
-            QFont bf; bf.setPointSize(8); bf.setBold(true); p.setFont(bf);
-            p.drawText(QRectF(x + 4, area.top() + 36, 120, 14),
-                       Qt::AlignLeft,
-                       QString("f₂H = %1 Hz").arg(am.portF2H, 0, 'f', 1));
+            drawMarkerLabel(p, area, x, area.top() + 40, h2_clr,
+                            QString("f₂H = %1 Hz").arg(am.portF2H, 0, 'f', 1));
         }
         if (am.spl > 0) {
             QFont sf; sf.setPointSize(7); p.setFont(sf);
@@ -615,22 +587,15 @@ void GroupDelayPlot::paintEvent(QPaintEvent *)
 
     // Legend
     {
-        QFont lf; lf.setPointSize(8); p.setFont(lf);
-        const int lx = int(area.right())-180; int ly = int(area.top())+8;
+        QVector<LegendEntry> leg;
         for (int i = 0; i < m_models.size(); ++i) {
             const auto &m = m_models[i];
             if (isVented(m) ? !hasPortedData(m)
                 : isBandpass(m) ? (isBP6(m) ? !hasBP6Data(m) : !hasBP4Data(m))
                 : (m.Fc <= 0 || m.Qtc <= 0)) continue;
-            bool active = (i == m_activeIdx);
-            QColor c = m.color; if (!active) c.setAlpha(140);
-            p.setPen(QPen(c, active ? 2.5 : 1.5));
-            p.drawLine(QPoint(lx, ly+6), QPoint(lx+20, ly+6));
-            p.setPen(active ? CLR_GREY_DK() : CLR_GREY());
-            QFont tf; tf.setPointSize(8); tf.setBold(active); p.setFont(tf);
-            p.drawText(QRect(lx+24, ly, 150, 14), Qt::AlignLeft|Qt::AlignVCenter, m.name);
-            ly += 16;
+            leg.append({m.color, m.name, Qt::SolidLine, i == m_activeIdx, false});
         }
+        drawLegend(p, area, leg);
     }
 
     // Cursor overlay
@@ -675,7 +640,8 @@ void VoltagePlot::paintEvent(QPaintEvent *)
     p.setRenderHint(QPainter::Antialiasing);
     p.fillRect(rect(), CLR_PAGE_BG());
 
-    const int ml = 58, mr = 54, mt = 16, mb = 42;
+    // Wide right margin: two scales live there (Current inner, Impedance outer).
+    const int ml = 58, mr = 88, mt = 16, mb = 42;
     const QRectF area(ml, mt, width()-ml-mr, height()-mt-mb);
     p.fillRect(area, CLR_PLOT_BG());
 
@@ -697,9 +663,11 @@ void VoltagePlot::paintEvent(QPaintEvent *)
         return Z > 0 ? std::sqrt(mp / Z) : 0.0;
     };
 
-    // Y ranges: scan all models for both V (left axis) and I (right axis).
+    // Y ranges: scan all models for V (left axis), I (inner right axis)
+    // and |Z| (outer right axis).
     double yMax = 5.0;
     double iMax = 0.5;
+    double zMax = 10.0;
     bool anyValid = false;
     for (const auto &m : m_models) {
         if (!hasSystemZData(m)) continue;
@@ -714,6 +682,7 @@ void VoltagePlot::paintEvent(QPaintEvent *)
             const double I  = Z > 0 ? std::sqrt(mpf / Z) : 0.0;
             yMax = std::max(yMax, V);
             iMax = std::max(iMax, I);
+            if (std::isfinite(Z)) zMax = std::max(zMax, Z);
         }
     }
     double yMin = 0.0;
@@ -725,10 +694,12 @@ void VoltagePlot::paintEvent(QPaintEvent *)
     }
     iMax = std::ceil(iMax * 1.1 * 4.0) / 4.0;  // round to 0.25 A
     if (iMax < 0.5) iMax = 0.5;
+    zMax = std::ceil(zMax * 1.1 / 5.0) * 5.0;  // round to 5 Ω
 
     auto xPx = [&](double f) { return area.left() + area.width()*(std::log10(f)-lfMin)/(lfMax-lfMin); };
     auto yPx = [&](double v) { return area.top()  + area.height()*(yMax-v)/(yMax-yMin); };
     auto iPx = [&](double i) { return area.top()  + area.height()*(iMax-i)/(iMax-iMin); };
+    auto zPx = [&](double z) { return area.top()  + area.height()*(zMax-z)/zMax; };
 
     auto fmtI = [](double a) -> QString {
         return a < 1.0 ? QString::number(a, 'f', 2)
@@ -756,12 +727,21 @@ void VoltagePlot::paintEvent(QPaintEvent *)
         p.drawText(QRectF(0, yPx(v)-8, area.left()-4, 16),
                    Qt::AlignRight|Qt::AlignVCenter, QString::number(int(v)));
 
-    // Right axis labels — Current (A) at convenient tick steps.
+    // Inner right scale — Current (A) at convenient tick steps.
     const double iStep = iMax > 20 ? 5.0 : iMax > 8 ? 2.0 : iMax > 4 ? 1.0
                        : iMax > 2 ? 0.5 : iMax > 1 ? 0.25 : 0.1;
     for (double a = 0; a <= iMax + 1e-6; a += iStep) {
-        p.drawText(QRectF(area.right()+4, iPx(a)-8, mr-8, 16),
+        p.drawText(QRectF(area.right()+4, iPx(a)-8, 26, 16),
                    Qt::AlignLeft|Qt::AlignVCenter, fmtI(a));
+    }
+
+    // Outer right scale — Impedance (Ω), read against the dotted curves.
+    const double zStep = zMax > 100 ? 25.0 : zMax > 50 ? 10.0
+                       : zMax > 20  ?  5.0 : 2.0;
+    p.setPen(CLR_GREY_LT());
+    for (double z = 0; z <= zMax + 1e-6; z += zStep) {
+        p.drawText(QRectF(area.right()+34, zPx(z)-8, 24, 16),
+                   Qt::AlignLeft|Qt::AlignVCenter, QString::number(int(z)));
     }
 
     // Axis titles
@@ -773,12 +753,12 @@ void VoltagePlot::paintEvent(QPaintEvent *)
                Qt::AlignCenter, "Voltage  (V RMS)");
     p.restore();
 
-    // Right axis title
+    // Right axis title — both right-hand scales in one line
     p.save();
     p.translate(width()-12, area.center().y());
     p.rotate(-90);
     p.drawText(QRectF(-area.height()/2.0, -14.0, area.height(), 28.0),
-               Qt::AlignCenter, "Current  (A RMS)");
+               Qt::AlignCenter, "Current  (A RMS)   ·   Impedance  (Ω)");
     p.restore();
 
     p.drawText(QRectF(area.left(), area.bottom()+20, area.width(), 16),
@@ -794,15 +774,39 @@ void VoltagePlot::paintEvent(QPaintEvent *)
         p.setPen(CLR_GREY_LT());
         QFont f; f.setPointSize(12); f.setItalic(true); p.setFont(f);
         p.drawText(area, Qt::AlignCenter,
-                   "Set Rₑ, BL, mms, and Qms to see voltage demand.");
+                   "Set Rₑ, BL, mms, and Qms to see voltage, current and impedance.");
         return;
+    }
+
+    // Rₑ floor for the active model — the DC resistance the amp sees
+    // (wiring-scaled); the dotted impedance curve approaches it.
+    if (m_activeIdx >= 0 && m_activeIdx < m_models.size()) {
+        const auto &am = m_models[m_activeIdx];
+        if (hasSystemZData(am)) {
+            double scale = std::max(1, am.numDrivers);
+            if      (am.wiringMode == BoxModel::WiringMode::Parallel)
+                scale = 1.0 / std::max(1, am.numDrivers);
+            else if (am.wiringMode == BoxModel::WiringMode::Separate)
+                scale = 1.0;
+            const double reFloor = am.Re * scale;
+            if (reFloor > 0 && reFloor < zMax) {
+                p.setPen(QPen(CLR_GREY_LT(), 1.0, Qt::DotLine));
+                p.drawLine(QPointF(area.left(),  zPx(reFloor)),
+                           QPointF(area.right(), zPx(reFloor)));
+                p.setPen(CLR_GREY());
+                QFont rf; rf.setPointSize(7); p.setFont(rf);
+                p.drawText(QRectF(area.right()-42, zPx(reFloor)-13, 40, 12),
+                           Qt::AlignRight|Qt::AlignVCenter, "Rₑ");
+                p.setFont(small);
+            }
+        }
     }
 
     auto drawCurve = [&](const BoxModel &m, bool active) {
         if (!hasSystemZData(m)) return;
         const double mp = perAmpPower(m);
-        QPainterPath vPath, iPath;
-        bool vFirst = true, iFirst = true;
+        QPainterPath vPath, iPath, zPath;
+        bool vFirst = true, iFirst = true, zFirst = true;
         for (int i = 0; i <= 500; ++i) {
             const double lf = lfMin + (lfMax-lfMin)*i/500.0;
             const double f  = std::pow(10.0, lf);
@@ -819,6 +823,10 @@ void VoltagePlot::paintEvent(QPaintEvent *)
                 const QPointF pt(xPx(f), iPx(I));
                 if (iFirst) { iPath.moveTo(pt); iFirst = false; } else iPath.lineTo(pt);
             }
+            if (Z <= zMax * 1.5) {
+                const QPointF pt(xPx(f), zPx(Z));
+                if (zFirst) { zPath.moveTo(pt); zFirst = false; } else zPath.lineTo(pt);
+            }
         }
         QColor c = m.color; if (!active) c.setAlpha(100);
         p.setBrush(Qt::NoBrush);
@@ -828,6 +836,10 @@ void VoltagePlot::paintEvent(QPaintEvent *)
         // Current — dashed, slightly thinner
         p.setPen(QPen(c, active ? 2.0 : 1.2, Qt::DashLine));
         p.drawPath(iPath);
+        // Impedance — dotted, on the outer right scale
+        QColor cz = m.color; cz.setAlpha(active ? 170 : 70);
+        p.setPen(QPen(cz, active ? 1.8 : 1.2, Qt::DotLine));
+        p.drawPath(zPath);
     };
 
     p.setClipRect(area);
@@ -837,22 +849,21 @@ void VoltagePlot::paintEvent(QPaintEvent *)
         drawCurve(m_models[m_activeIdx], true);
     p.setClipping(false);
 
-    // Legend
+    // Legend — left-anchored (curves crowd the top-right), with a key for
+    // the two line styles sharing each model colour.
     {
-        QFont lf; lf.setPointSize(8); p.setFont(lf);
-        const int lx = int(area.left())+8; int ly = int(area.top())+8;
+        QVector<LegendEntry> leg;
         for (int i = 0; i < m_models.size(); ++i) {
             const auto &m = m_models[i];
             if (!hasSystemZData(m)) continue;
-            bool active = (i == m_activeIdx);
-            QColor c = m.color; if (!active) c.setAlpha(140);
-            p.setPen(QPen(c, active ? 2.5 : 1.5));
-            p.drawLine(QPoint(lx, ly+6), QPoint(lx+20, ly+6));
-            p.setPen(active ? CLR_GREY_DK() : CLR_GREY());
-            QFont tf; tf.setPointSize(8); tf.setBold(active); p.setFont(tf);
-            p.drawText(QRect(lx+24, ly, 160, 14), Qt::AlignLeft|Qt::AlignVCenter, m.name);
-            ly += 16;
+            leg.append({m.color, m.name, Qt::SolidLine, i == m_activeIdx, false});
         }
+        if (!leg.isEmpty()) {
+            leg.append({CLR_GREY(), "Voltage (left axis)",     Qt::SolidLine, true, true});
+            leg.append({CLR_GREY(), "Current (inner right)",   Qt::DashLine,  true, true});
+            leg.append({CLR_GREY(), "Impedance (outer right)", Qt::DotLine,   true, true});
+        }
+        drawLegend(p, area, leg, /*anchorRight=*/false);
     }
 
     // Cursor overlay
@@ -1024,31 +1035,20 @@ void ExcursionPlot::paintEvent(QPaintEvent *)
 
     // Legend
     {
-        QFont lf; lf.setPointSize(8); p.setFont(lf);
-        const int lx = int(area.right())-185; int ly = int(area.top())+8;
+        QVector<LegendEntry> leg;
         for (int i = 0; i < m_models.size(); ++i) {
             const auto &m = m_models[i];
             if (!hasExcursionData(m)) continue;
-            bool active = (i == m_activeIdx);
-            QColor c = m.color; if (!active) c.setAlpha(140);
-            p.setPen(QPen(c, active ? 2.5 : 1.5));
-            p.drawLine(QPoint(lx, ly+6), QPoint(lx+20, ly+6));
-            p.setPen(active ? CLR_GREY_DK() : CLR_GREY());
-            QFont tf; tf.setPointSize(8); tf.setBold(active); p.setFont(tf);
-            QString label = m.name;
-            if (m.xmax_mm > 0 || m.xlim_mm > 0) {
-                label += "  [";
-                if (m.xmax_mm > 0)
-                    label += QString("Xmax %1").arg(m.xmax_mm, 0, 'f', 1);
-                if (m.xmax_mm > 0 && m.xlim_mm > 0)
-                    label += " / ";
-                if (m.xlim_mm > 0)
-                    label += QString("Xlim %1").arg(m.xlim_mm, 0, 'f', 1);
-                label += " mm]";
-            }
-            p.drawText(QRect(lx+24, ly, 200, 14), Qt::AlignLeft|Qt::AlignVCenter, label);
-            ly += 16;
+            const bool active = (i == m_activeIdx);
+            leg.append({m.color, m.name, Qt::SolidLine, active, false});
+            if (m.xmax_mm > 0)
+                leg.append({m.color, QString("Xmax %1 mm").arg(m.xmax_mm, 0, 'f', 1),
+                            Qt::DashLine, active, true});
+            if (m.xlim_mm > 0)
+                leg.append({m.color, QString("Xlim %1 mm").arg(m.xlim_mm, 0, 'f', 1),
+                            Qt::DotLine, active, true});
         }
+        drawLegend(p, area, leg);
     }
 
     // Cursor overlay
@@ -1274,19 +1274,13 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
 
     // Legend
     {
-        QFont lf; lf.setPointSize(8); p.setFont(lf);
-        const int lx = int(area.right())-180; int ly = int(area.top())+8;
+        QVector<LegendEntry> leg;
         for (const auto &cv : curves) {
             const BoxModel &m = m_models[cv.modelIdx];
-            bool active = (cv.modelIdx == m_activeIdx);
-            QColor c = m.color; if (!active) c.setAlpha(140);
-            p.setPen(QPen(c, active ? 2.5 : 1.5, cv.style));
-            p.drawLine(QPoint(lx, ly+6), QPoint(lx+20, ly+6));
-            p.setPen(active ? CLR_GREY_DK() : CLR_GREY());
-            QFont tf; tf.setPointSize(8); tf.setBold(active); p.setFont(tf);
-            p.drawText(QRect(lx+24, ly, 150, 14), Qt::AlignLeft|Qt::AlignVCenter, m.name + cv.suffix);
-            ly += 16;
+            leg.append({m.color, m.name + cv.suffix, cv.style,
+                        cv.modelIdx == m_activeIdx, false});
         }
+        drawLegend(p, area, leg);
     }
 
     // Cursor overlay
@@ -1305,188 +1299,6 @@ void PortVelocityPlot::paintEvent(QPaintEvent *)
 
 
 
-// ════════════════════════════════════════════════════════════════════
-//  ImpedancePlot
-// ════════════════════════════════════════════════════════════════════
-ImpedancePlot::ImpedancePlot(QWidget *parent) : PlotBase(280, 1.0, parent) {}
-
-void ImpedancePlot::paintEvent(QPaintEvent *)
-{
-    QPainter p(this);
-    p.setRenderHint(QPainter::Antialiasing);
-    p.fillRect(rect(), CLR_PAGE_BG());
-
-    const int ml = 58, mr = 16, mt = 16, mb = 42;
-    const QRectF area(ml, mt, width()-ml-mr, height()-mt-mb);
-    p.fillRect(area, CLR_PLOT_BG());
-
-    const double lfMin = std::log10(F_MIN);
-    const double lfMax = std::log10(F_MAX);
-
-    // |Z| at the small-signal limit (power -> 0): matches what an
-    // impedance sweep (DATS / REW) measures on the finished box.
-    auto zOf = [](const BoxModel &m, double f) { return systemImpedance(m, f, 0.0); };
-
-    // Y range: scan all models
-    double yMax = 10.0;
-    bool anyValid = false;
-    for (const auto &m : m_models) {
-        if (!hasSystemZData(m)) continue;
-        anyValid = true;
-        for (int i = 0; i <= 200; ++i) {
-            const double f = std::pow(10.0, lfMin + (lfMax-lfMin)*i/200.0);
-            const double z = zOf(m, f);
-            if (std::isfinite(z)) yMax = std::max(yMax, z);
-        }
-    }
-    double yMin = 0.0;
-    double niceStep;
-    if (m_yMin.has_value() && m_yMax.has_value()) {
-        yMin = *m_yMin; yMax = *m_yMax;
-        const double rawStep = (yMax - yMin) / 5.0;
-        const double mag = std::pow(10.0, std::floor(std::log10(std::max(rawStep, 1e-9))));
-        niceStep = std::ceil(rawStep / mag) * mag;
-    } else {
-        yMax *= 1.1;
-        const double rawStep = yMax / 5.0;
-        const double mag = std::pow(10.0, std::floor(std::log10(std::max(rawStep, 1e-9))));
-        niceStep = std::ceil(rawStep / mag) * mag;
-        yMax = std::ceil(yMax / niceStep) * niceStep;
-    }
-
-    auto xPx = [&](double f) { return area.left() + area.width()*(std::log10(f)-lfMin)/(lfMax-lfMin); };
-    auto yPx = [&](double z) { return area.top()  + area.height()*(yMax-z)/(yMax-yMin); };
-
-    // Grid
-    QFont small; small.setPointSize(8); p.setFont(small);
-    p.setPen(QPen(CLR_GRID(), 1.0));
-    const double gFreqs[] = {20,30,50,70,100,200,300,500,700,1000};
-    for (double f : gFreqs)
-        p.drawLine(QPointF(xPx(f), area.top()), QPointF(xPx(f), area.bottom()));
-    for (double z = yMin; z <= yMax+1e-9; z += niceStep)
-        p.drawLine(QPointF(area.left(), yPx(z)), QPointF(area.right(), yPx(z)));
-
-    // Axis labels
-    p.setPen(CLR_GREY());
-    for (double f : gFreqs) {
-        QString lbl = f>=1000 ? QString("%1k").arg(f/1000,0,'f',0) : QString::number(int(f));
-        p.drawText(QRectF(xPx(f)-20, area.bottom()+2, 40, 14), Qt::AlignHCenter, lbl);
-    }
-    for (double z = yMin; z <= yMax+1e-9; z += niceStep)
-        p.drawText(QRectF(0, yPx(z)-8, area.left()-4, 16),
-                   Qt::AlignRight|Qt::AlignVCenter, QString::number(int(std::round(z))));
-
-    // Axis titles
-    p.setPen(CLR_GREY_DK());
-    p.save();
-    p.translate(14, area.center().y());
-    p.rotate(-90);
-    p.drawText(QRectF(-area.height()/2.0, -14.0, area.height(), 28.0),
-               Qt::AlignCenter, "Impedance  (Ω)");
-    p.restore();
-    p.drawText(QRectF(area.left(), area.bottom()+20, area.width(), 16),
-               Qt::AlignHCenter, "Frequency (Hz)");
-
-    // Axes
-    p.setPen(QPen(CLR_GREY_DK(), 1.5));
-    p.drawLine(QPointF(area.left(), area.top()),    QPointF(area.left(),  area.bottom()));
-    p.drawLine(QPointF(area.left(), area.bottom()), QPointF(area.right(), area.bottom()));
-
-    if (!anyValid) {
-        p.setPen(CLR_GREY_LT());
-        QFont f; f.setPointSize(12); f.setItalic(true); p.setFont(f);
-        p.drawText(area, Qt::AlignCenter,
-                   "Set Rₑ, BL, mms, and Qms to see the impedance curve.");
-        return;
-    }
-
-    // Curves
-    auto drawCurve = [&](const BoxModel &m, bool active) {
-        if (!hasSystemZData(m)) return;
-        QPainterPath curve; bool first = true;
-        for (int i = 0; i <= 500; ++i) {
-            const double f = std::pow(10.0, lfMin + (lfMax-lfMin)*i/500.0);
-            const double z = zOf(m, f);
-            if (!std::isfinite(z)) continue;
-            const QPointF pt(xPx(f), yPx(z));
-            if (first) { curve.moveTo(pt); first = false; } else curve.lineTo(pt);
-        }
-        QColor c = m.color; if (!active) c.setAlpha(100);
-        p.setPen(QPen(c, active ? 3.0 : 1.8));
-        p.setBrush(Qt::NoBrush);
-        p.drawPath(curve);
-    };
-
-    p.setClipRect(area);
-    for (int i = 0; i < m_models.size(); ++i)
-        if (i != m_activeIdx) drawCurve(m_models[i], false);
-    if (m_activeIdx >= 0 && m_activeIdx < m_models.size())
-        drawCurve(m_models[m_activeIdx], true);
-    p.setClipping(false);
-
-    // Markers for the active model: Re reference and fb / Fc
-    if (m_activeIdx >= 0 && m_activeIdx < m_models.size()) {
-        const auto &am = m_models[m_activeIdx];
-        if (hasSystemZData(am)) {
-            // Re — the DC floor the curve approaches
-            if (am.Re > yMin && am.Re < yMax) {
-                p.setPen(QPen(CLR_GREY_LT(), 1.0, Qt::DotLine));
-                p.drawLine(QPointF(area.left(), yPx(am.Re)), QPointF(area.right(), yPx(am.Re)));
-                p.setPen(CLR_GREY());
-                QFont rf; rf.setPointSize(7); p.setFont(rf);
-                p.drawText(QRectF(area.right()-42, yPx(am.Re)-13, 40, 12),
-                           Qt::AlignRight|Qt::AlignVCenter, "Rₑ");
-            }
-            // Tuning marker: fb for ported (impedance minimum), Fc for sealed peak
-            const bool ported = isPorted(am);
-            const double markerFreq = ported ? (isBP4(am) ? am.fbFront : am.fb) : am.Fc;
-            const QString markerLbl = ported
-                ? QString("fb = %1 Hz").arg(markerFreq, 0, 'f', 1)
-                : QString("Fc = %1 Hz").arg(markerFreq, 0, 'f', 1);
-            if (markerFreq > F_MIN && markerFreq < F_MAX) {
-                QColor mc = am.color; mc.setAlpha(180);
-                p.setPen(QPen(mc, 1.2, Qt::DashLine));
-                p.drawLine(QPointF(xPx(markerFreq), area.top()), QPointF(xPx(markerFreq), area.bottom()));
-                p.setPen(mc);
-                QFont bf; bf.setPointSize(8); bf.setBold(true); p.setFont(bf);
-                p.drawText(QRectF(xPx(markerFreq) + 4, area.top() + 4, 100, 14),
-                           Qt::AlignLeft, markerLbl);
-            }
-        }
-    }
-
-    // Legend
-    {
-        QFont lf; lf.setPointSize(8); p.setFont(lf);
-        const int lx = int(area.right())-180; int ly = int(area.top())+8;
-        for (int i = 0; i < m_models.size(); ++i) {
-            const auto &m = m_models[i];
-            if (!hasSystemZData(m)) continue;
-            bool active = (i == m_activeIdx);
-            QColor c = m.color; if (!active) c.setAlpha(140);
-            p.setPen(QPen(c, active ? 2.5 : 1.5));
-            p.drawLine(QPoint(lx, ly+6), QPoint(lx+20, ly+6));
-            p.setPen(active ? CLR_GREY_DK() : CLR_GREY());
-            QFont tf; tf.setPointSize(8); tf.setBold(active); p.setFont(tf);
-            p.drawText(QRect(lx+24, ly, 150, 14), Qt::AlignLeft|Qt::AlignVCenter, m.name);
-            ly += 16;
-        }
-    }
-
-    // Cursor overlay
-    if (m_cursorFreq > 0) {
-        QVector<CursorEntry> entries;
-        for (int i = 0; i < m_models.size(); ++i) {
-            const auto &m = m_models[i];
-            if (!hasSystemZData(m)) continue;
-            const double z = zOf(m, m_cursorFreq);
-            if (!std::isfinite(z)) continue;
-            entries.append({m.color, i == m_activeIdx, m.name,
-                            yPx(z), QString("%1 Ω").arg(z, 0, 'f', 1)});
-        }
-        drawCursorOverlay(p, area, xPx(m_cursorFreq), m_cursorFreq, entries);
-    }
-}
 // ════════════════════════════════════════════════════════════════════
 //  MaxSplPlot
 // ════════════════════════════════════════════════════════════════════
@@ -1508,22 +1320,36 @@ void MaxSplPlot::paintEvent(QPaintEvent *)
     // The max-power bisection is comparatively expensive, so each curve is
     // computed once into a point list and reused for range, draw and legend.
     constexpr int N = 200;
-    struct Curve { int modelIdx; QVector<QPointF> pts; };   // x = f, y = dB
+    struct Curve {
+        int modelIdx;
+        QVector<QPointF> pts;         // mechanical ceiling (Xmax/port), x = f, y = dB
+        QVector<QPointF> thermalPts;  // SPL at rated RMS power — empty if Pe unknown
+    };
     QVector<Curve> curves;
     double yMax = -1e9, yMin = 1e9;
     for (int mi = 0; mi < m_models.size(); ++mi) {
         const BoxModel &m = m_models[mi];
         if (!hasMaxSplData(m)) continue;
         const SplContext ctx = makeSplContext(m);
+        const bool hasPe = thermalPowerLimit(m) > 0.0;
         Curve cv; cv.modelIdx = mi;
         cv.pts.reserve(N + 1);
         for (int i = 0; i <= N; ++i) {
             const double f  = std::pow(10.0, lfMin + (lfMax-lfMin)*i/double(N));
             const double db = maxSplDb(m, ctx, f, maxPowerAt(m, f));
-            if (!std::isfinite(db) || db < -20.0) continue;
-            cv.pts.append(QPointF(f, db));
-            yMax = std::max(yMax, db);
-            yMin = std::min(yMin, db);
+            if (std::isfinite(db) && db >= -20.0) {
+                cv.pts.append(QPointF(f, db));
+                yMax = std::max(yMax, db);
+                yMin = std::min(yMin, db);
+            }
+            if (hasPe) {
+                const double dbTh = thermalSplDb(m, ctx, f);
+                if (std::isfinite(dbTh) && dbTh >= -20.0) {
+                    cv.thermalPts.append(QPointF(f, dbTh));
+                    yMax = std::max(yMax, dbTh);
+                    yMin = std::min(yMin, dbTh);
+                }
+            }
         }
         if (!cv.pts.isEmpty()) curves.append(cv);
     }
@@ -1566,7 +1392,7 @@ void MaxSplPlot::paintEvent(QPaintEvent *)
     p.translate(14, area.center().y());
     p.rotate(-90);
     p.drawText(QRectF(-area.height()/2.0, -14.0, area.height(), 28.0),
-               Qt::AlignCenter, "Max SPL  (dB / 1 m, Xmax & port limited)");
+               Qt::AlignCenter, "Max SPL  (dB / 1 m)");
     p.restore();
     p.drawText(QRectF(area.left(), area.bottom()+20, area.width(), 16),
                Qt::AlignHCenter, "Frequency (Hz)");
@@ -1584,18 +1410,28 @@ void MaxSplPlot::paintEvent(QPaintEvent *)
         return;
     }
 
-    // Curves
-    auto drawCurve = [&](const Curve &cv, bool active) {
-        const BoxModel &m = m_models[cv.modelIdx];
+    // Curves — solid mechanical ceiling, dashed thermal (rated Pe) limit.
+    // Wherever the solid curve sits above the dashed line, the box would
+    // demand more than the driver's rated continuous power.
+    auto buildPath = [&](const QVector<QPointF> &pts) {
         QPainterPath path; bool first = true;
-        for (const auto &pt : cv.pts) {
+        for (const auto &pt : pts) {
             const QPointF px(xPx(pt.x()), yPx(pt.y()));
             if (first) { path.moveTo(px); first = false; } else path.lineTo(px);
         }
+        return path;
+    };
+    auto drawCurve = [&](const Curve &cv, bool active) {
+        const BoxModel &m = m_models[cv.modelIdx];
         QColor c = m.color; if (!active) c.setAlpha(100);
-        p.setPen(QPen(c, active ? 3.0 : 1.8));
         p.setBrush(Qt::NoBrush);
-        p.drawPath(path);
+        p.setPen(QPen(c, active ? 3.0 : 1.8));
+        p.drawPath(buildPath(cv.pts));
+        if (!cv.thermalPts.isEmpty()) {
+            QColor ct = m.color; ct.setAlpha(active ? 170 : 70);
+            p.setPen(QPen(ct, active ? 1.8 : 1.2, Qt::DashLine));
+            p.drawPath(buildPath(cv.thermalPts));
+        }
     };
 
     p.setClipRect(area);
@@ -1607,33 +1443,42 @@ void MaxSplPlot::paintEvent(QPaintEvent *)
 
     // Legend
     {
-        QFont lf; lf.setPointSize(8); p.setFont(lf);
-        const int lx = int(area.right())-180; int ly = int(area.top())+8;
+        QVector<LegendEntry> leg;
         for (const auto &cv : curves) {
             const BoxModel &m = m_models[cv.modelIdx];
-            bool active = (cv.modelIdx == m_activeIdx);
-            QColor c = m.color; if (!active) c.setAlpha(140);
-            p.setPen(QPen(c, active ? 2.5 : 1.5));
-            p.drawLine(QPoint(lx, ly+6), QPoint(lx+20, ly+6));
-            p.setPen(active ? CLR_GREY_DK() : CLR_GREY());
-            QFont tf; tf.setPointSize(8); tf.setBold(active); p.setFont(tf);
-            p.drawText(QRect(lx+24, ly, 150, 14), Qt::AlignLeft|Qt::AlignVCenter, m.name);
-            ly += 16;
+            const bool active = (cv.modelIdx == m_activeIdx);
+            leg.append({m.color, m.name, Qt::SolidLine, active, false});
+            if (!cv.thermalPts.isEmpty()) {
+                const QString lbl = m.numDrivers > 1
+                    ? QString("Pe %1×%2 W (thermal)")
+                          .arg(m.numDrivers).arg(m.pe_W, 0, 'f', 0)
+                    : QString("Pe %1 W (thermal)").arg(m.pe_W, 0, 'f', 0);
+                leg.append({m.color, lbl, Qt::DashLine, active, true});
+            }
         }
+        drawLegend(p, area, leg);
     }
 
-    // Cursor overlay — shows the ceiling, allowed power and the limiter
+    // Cursor overlay — shows the operative ceiling, allowed power and the
+    // limiter; when the rated RMS power binds before Xmax/port, the figures
+    // are thermally capped and the limiter reads "Pe".
     if (m_cursorFreq > 0) {
         QVector<CursorEntry> entries;
         for (const auto &cv : curves) {
             const BoxModel &m = m_models[cv.modelIdx];
             const SplContext ctx = makeSplContext(m);
             const auto mp = maxPowerAt(m, m_cursorFreq);
-            const double db = maxSplDb(m, ctx, m_cursorFreq, mp);
+            double  db  = maxSplDb(m, ctx, m_cursorFreq, mp);
+            double  pwW = mp.pMax;
+            QString lim = mp.limiter == MaxSplPoint::Port ? "port" : "Xmax";
+            const double pTh = thermalPowerLimit(m);
+            if (pTh > 0.0 && pTh < pwW) {
+                const double dbTh = thermalSplDb(m, ctx, m_cursorFreq);
+                if (std::isfinite(dbTh)) { db = dbTh; pwW = pTh; lim = "Pe"; }
+            }
             if (!std::isfinite(db)) continue;
-            const QString lim = mp.limiter == MaxSplPoint::Port ? "port" : "Xmax";
-            const QString pw  = mp.pMax >= 100 ? QString::number(qRound(mp.pMax))
-                                               : QString::number(mp.pMax, 'f', 1);
+            const QString pw = pwW >= 100 ? QString::number(qRound(pwW))
+                                          : QString::number(pwW, 'f', 1);
             entries.append({m.color, cv.modelIdx == m_activeIdx, m.name,
                             yPx(db), QString("%1 dB @ %2 W (%3)").arg(db, 0, 'f', 1)
                                      .arg(pw).arg(lim)});
