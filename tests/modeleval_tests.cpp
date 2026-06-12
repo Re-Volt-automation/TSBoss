@@ -111,6 +111,28 @@ int main()
         check(!hasMaxSplData(m), "gating: missing Xmax disqualifies");
     }
 
+    // ── Thermal (rated RMS power) limit ───────────────────────────
+    {
+        BoxModel m = makeSealed();
+        m.pe_W = 200.0;
+        m.numDrivers = 2;
+        check(thermalPowerLimit(m) == 400.0,
+              "thermal: capacity scales with driver count");
+        m.numDrivers = 1;
+
+        const SplContext c = makeSplContext(m);
+        const double base = splSmallSignalDb(m, c, 1000.0);
+        const double th   = thermalSplDb(m, c, 1000.0);
+        check(std::isfinite(th)
+              && std::abs(th - (base + 10.0 * std::log10(200.0))) < 1e-9,
+              "thermal: SPL ceiling = small-signal + 10*log10(Pe)");
+
+        m.pe_W = 0.0;
+        check(thermalPowerLimit(m) == 0.0, "thermal: unknown Pe -> no capacity");
+        check(!std::isfinite(thermalSplDb(m, c, 1000.0)),
+              "thermal: unknown Pe yields NaN ceiling");
+    }
+
     if (g_failures) std::printf("\n%d FAILURE(S)\n", g_failures);
     else            std::printf("\nAll modeleval tests passed.\n");
     return g_failures;

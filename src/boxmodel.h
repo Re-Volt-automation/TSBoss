@@ -83,6 +83,7 @@ struct BoxModel
     // Large-signal reference (from driver record, not user-editable)
     double  xmax_mm  = 0.0;  ///< Peak linear excursion [mm] — 0 if unknown
     double  xlim_mm  = 0.0;  ///< Mechanical excursion limit [mm] — 0 if unknown
+    double  pe_W     = 0.0;  ///< Rated continuous (RMS) power per driver [W] — 0 if unknown
 
     // Optional added cone mass (e.g. felt rings, mass-loading test) [g]
     // Shifts fs, Qts, Qes, Qms while leaving Vas/Cms/Re/BL/Sd unchanged.

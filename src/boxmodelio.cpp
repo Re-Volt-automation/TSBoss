@@ -66,6 +66,11 @@ QJsonObject modelToJson(const BoxModel &m)
     obj["color"]               = m.color.name();
     obj["isDVC"]               = m.isDVC;
     obj["dvcWiring"]           = m.dvcWiring;
+    // Large-signal limits travel with the file — a project loaded on a
+    // machine without the driver in its database keeps Excursion/Max SPL.
+    obj["xmax_mm"]             = m.xmax_mm;
+    obj["xlim_mm"]             = m.xlim_mm;
+    obj["pe_W"]                = m.pe_W;
     obj["addedMass_g"]         = m.addedMass_g;
     obj["hpfOrder"]            = m.hpfOrder;
     obj["hpfFreq"]             = m.hpfFreq;
@@ -136,6 +141,9 @@ BoxModel modelFromJson(const QJsonObject &obj)
     m.autoName  = obj["autoName"].toBool(false);
     m.isDVC     = obj["isDVC"].toBool(false);
     m.dvcWiring = obj["dvcWiring"].toInt(0);
+    m.xmax_mm   = obj["xmax_mm"].toDouble(0.0);
+    m.xlim_mm   = obj["xlim_mm"].toDouble(0.0);
+    m.pe_W      = obj["pe_W"].toDouble(0.0);
     m.addedMass_g = obj["addedMass_g"].toDouble(0.0);
     // hpfOrder: only 0 / 2 / 4 are meaningful — snap anything else down.
     {

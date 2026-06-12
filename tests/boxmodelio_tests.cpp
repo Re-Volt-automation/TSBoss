@@ -31,6 +31,7 @@ static BoxModel makeFullModel()
     m.portExtraSurfArea_cm2 = 8.0; m.portFlare = 2;
     m.numDrivers = 2; m.wiringMode = BoxModel::WiringMode::Parallel;
     m.isDVC = true; m.dvcWiring = 1;
+    m.xmax_mm = 9.5; m.xlim_mm = 14.0; m.pe_W = 350.0;
     m.addedMass_g = 15.0; m.visible = false;
     m.hpfOrder = 4; m.hpfFreq = 22.5;
     m.color = QColor("#d97706");
@@ -75,6 +76,8 @@ int main()
         check(b.numDrivers == a.numDrivers && b.wiringMode == a.wiringMode,
                                                             "roundtrip: drivers/wiring");
         check(b.isDVC == a.isDVC && b.dvcWiring == a.dvcWiring, "roundtrip: DVC");
+        check(b.xmax_mm == a.xmax_mm && b.xlim_mm == a.xlim_mm && b.pe_W == a.pe_W,
+                                                            "roundtrip: large-signal limits");
         check(b.addedMass_g == a.addedMass_g,               "roundtrip: added mass");
         check(b.hpfOrder == a.hpfOrder && b.hpfFreq == a.hpfFreq,
                                                             "roundtrip: subsonic filter");

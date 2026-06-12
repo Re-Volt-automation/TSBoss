@@ -255,3 +255,25 @@ inline double maxSplDb(const BoxModel &m, const SplContext &c, double f,
         return std::numeric_limits<double>::quiet_NaN();
     return base + 10.0 * std::log10(mp.pMax);
 }
+
+// ── Thermal (rated RMS power) limit ───────────────────────────────
+
+/// Total thermal capacity [W]: rated continuous power per driver × driver
+/// count. 0 when the driver record carries no Pe.
+inline double thermalPowerLimit(const BoxModel &m)
+{
+    return m.pe_W > 0.0 ? m.pe_W * std::max(1, m.numDrivers) : 0.0;
+}
+
+/// SPL [dB] ceiling at the thermal limit: the small-signal curve driven at
+/// the full rated power. Where the mechanical (Xmax/port) ceiling exceeds
+/// this line, the design would cook the voice coil before hitting Xmax.
+/// NaN when Pe is unknown or the model has no curve.
+inline double thermalSplDb(const BoxModel &m, const SplContext &c, double f)
+{
+    const double P    = thermalPowerLimit(m);
+    const double base = splSmallSignalDb(m, c, f);
+    if (!std::isfinite(base) || P <= 0.0)
+        return std::numeric_limits<double>::quiet_NaN();
+    return base + 10.0 * std::log10(P);
+}
