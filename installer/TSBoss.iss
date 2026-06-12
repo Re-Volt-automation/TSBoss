@@ -2,7 +2,7 @@
 ; Builds an installer that bundles the windeployqt'd runtime.
 
 #define MyAppName       "TSBoss"
-#define MyAppVersion    "1.1.0"
+#define MyAppVersion    "1.2.0"
 #define MyAppPublisher  "TSBoss"
 #define MyAppExeName    "TSBoss.exe"
 
@@ -15,7 +15,9 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-OutputDir=E:\TSBoss\installer\out
+; Relative to this script — survives the repo moving (the old absolute
+; E:\TSBoss\... paths pointed at a location that no longer exists).
+OutputDir=out
 OutputBaseFilename=TSBoss-{#MyAppVersion}-Setup
 Compression=lzma2/ultra
 SolidCompression=yes
@@ -35,7 +37,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "E:\TSBoss\deploy\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\deploy\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
