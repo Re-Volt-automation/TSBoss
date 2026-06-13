@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <title>TSBoss mark</title>
+  <desc>Simplified TSBoss icon for small sizes: amber resonance peak on a dark panel.</desc>
+  <rect width="256" height="256" rx="52" fill="#0E1116"/>
+  <path d="M 30 178 C 70 176 98 172 108 144 C 115 124 115 50 121 50 C 127 50 127 124 134 144 C 144 172 172 176 226 176"
+        fill="none" stroke="#F59E0B" stroke-width="16"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

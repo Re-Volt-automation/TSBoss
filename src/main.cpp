@@ -2,6 +2,7 @@
 #include "theme.h"
 #include <QApplication>
 #include <QFont>
+#include <QIcon>
 #include <QStyleFactory>
 
 int main(int argc, char *argv[])
@@ -13,6 +14,9 @@ int main(int argc, char *argv[])
     app.setOrganizationName("TSBoss");
     app.setOrganizationDomain("tsboss.local");
     app.setApplicationVersion("1.2.0");
+
+    // Window / taskbar icon — multi-size .ico embedded via resources.qrc.
+    app.setWindowIcon(QIcon(":/TSBoss.ico"));
 
     // Clean base style
     app.setStyle(QStyleFactory::create("Fusion"));

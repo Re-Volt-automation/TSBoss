@@ -52,7 +52,15 @@ set(PROJECT_SOURCES
     src/pdfreport.cpp
     src/theme.h
     src/theme.cpp
+    packaging/resources.qrc
 )
+
+# Windows exe / taskbar icon — compiled into the binary via a resource script.
+if(WIN32)
+    enable_language(RC)
+    set(CMAKE_RC_FLAGS "${CMAKE_RC_FLAGS} -I${CMAKE_CURRENT_SOURCE_DIR}/packaging")
+    list(APPEND PROJECT_SOURCES packaging/app.rc)
+endif()
 
 qt_add_executable(TSBoss
     MANUAL_FINALIZATION

@@ -1,26 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#1f2933"/>
-      <stop offset="1" stop-color="#0b1015"/>
-    </linearGradient>
-    <radialGradient id="cone" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#3d4b59"/>
-      <stop offset="1" stop-color="#161d24"/>
-    </radialGradient>
-  </defs>
-  <rect width="256" height="256" rx="48" fill="url(#bg)"/>
-  <!-- speaker driver -->
-  <circle cx="128" cy="128" r="84" fill="none" stroke="#2b3744" stroke-width="6"/>
-  <circle cx="128" cy="128" r="78" fill="url(#cone)"/>
-  <circle cx="128" cy="128" r="30" fill="#0f1419"/>
-  <circle cx="128" cy="128" r="30" fill="none" stroke="#4fd1c5" stroke-width="3"/>
-  <!-- mounting holes -->
-  <g fill="#4fd1c5">
-    <circle cx="128" cy="56" r="7"/>
-    <circle cx="200" cy="128" r="7"/>
-    <circle cx="128" cy="200" r="7"/>
-    <circle cx="56" cy="128" r="7"/>
+  <title>TSBoss</title>
+  <desc>An amber loudspeaker resonance peak on a dark plot grid.</desc>
+  <!-- panel -->
+  <rect width="256" height="256" rx="52" fill="#0E1116"/>
+  <rect x="8" y="8" width="240" height="240" rx="44" fill="none" stroke="#222B37" stroke-width="2"/>
+  <!-- plot grid -->
+  <g stroke="#1C2430" stroke-width="2">
+    <line x1="34" y1="86"  x2="222" y2="86"/>
+    <line x1="34" y1="132" x2="222" y2="132"/>
+    <line x1="70"  y1="40" x2="70"  y2="210"/>
+    <line x1="123" y1="40" x2="123" y2="210"/>
+    <line x1="176" y1="40" x2="176" y2="210"/>
   </g>
+  <!-- Re floor (dashed) -->
+  <line x1="34" y1="184" x2="222" y2="184" stroke="#566273" stroke-width="3" stroke-dasharray="7 7"/>
+  <!-- resonance peak -->
+  <path d="M 34 180 C 70 179 96 176 106 150 C 113 132 113 56 119 56 C 125 56 125 132 132 150 C 142 176 170 179 222 178"
+        fill="none" stroke="#F59E0B" stroke-width="10"
+        stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

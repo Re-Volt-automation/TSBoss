@@ -22,6 +22,7 @@ OutputBaseFilename=TSBoss-{#MyAppVersion}-Setup
 Compression=lzma2/ultra
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\packaging\TSBoss.ico
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
