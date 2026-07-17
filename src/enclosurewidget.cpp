@@ -8,6 +8,7 @@
 #include "diagrams/portdiagram.h"
 #include "noscrollspinbox.h"
 #include "driverdetailwidget.h"
+#include "paramcheck.h"
 #include "theme.h"
 #include "pdfreport.h"
 #include <complex>
@@ -432,6 +433,14 @@ void EnclosureWidget::buildUi()
     m_statusLbl->setStyleSheet(themed(
         "color:%error%; font-family:'IBM Plex Mono',monospace; font-size:8pt;"));
     leftVb->addWidget(m_statusLbl);
+
+    // Driver-parameter sanity warnings for the active model (paramcheck.h)
+    m_paramWarnLbl = new QLabel;
+    m_paramWarnLbl->setWordWrap(true);
+    m_paramWarnLbl->setStyleSheet(themed(
+        "color:%warn%; font-family:'IBM Plex Mono',monospace; font-size:8pt;"));
+    m_paramWarnLbl->setVisible(false);
+    leftVb->addWidget(m_paramWarnLbl);
 
     // ── RIGHT PANEL: plot tabs (top) + params (bottom) ──────────
     m_splPlot  = new ResponsePlot;
@@ -1806,11 +1815,13 @@ void EnclosureWidget::onModelSelected(int row)
         m_activeIdx = -1;
         clearFields();
         updatePlot();
+        updateParamWarnings();
         return;
     }
     m_activeIdx = row;
     loadModelIntoFields(row);
     updatePlot();
+    updateParamWarnings();
 }
 
 void EnclosureWidget::onAddModel()
@@ -2158,6 +2169,26 @@ void EnclosureWidget::onEncTypeChanged(int index)
     if (m_resLblQtc) m_resLblQtc->setVisible(sealed || isBandpass(cur));
     if (m_resQtc)    m_resQtc   ->setVisible(sealed || isBandpass(cur));
     updateOptSealedHint();
+}
+
+// Surface driver-parameter sanity warnings for the active model — e.g. a
+// placeholder Rₑ or a slipped decimal point that the physics identities in
+// paramcheck.h can detect. Cheap enough to run on every recalculation.
+void EnclosureWidget::updateParamWarnings()
+{
+    if (!m_paramWarnLbl) return;
+    QStringList w;
+    if (m_activeIdx >= 0 && m_activeIdx < m_models.size())
+        w = paramcheck::driverParamWarnings(
+                paramcheck::fromModel(m_models[m_activeIdx]));
+    if (w.isEmpty()) {
+        m_paramWarnLbl->clear();
+        m_paramWarnLbl->setVisible(false);
+    } else {
+        for (auto &s : w) s.prepend(QStringLiteral("⚠ "));
+        m_paramWarnLbl->setText(w.join(QStringLiteral("\n\n")));
+        m_paramWarnLbl->setVisible(true);
+    }
 }
 
 void EnclosureWidget::updateOptSealedHint()
@@ -3120,6 +3151,7 @@ void EnclosureWidget::loadModelIntoFields(int index)
 
     m_updating = false;
     updateOptSealedHint();
+    updateParamWarnings();
 }
 
 void EnclosureWidget::clearFields()

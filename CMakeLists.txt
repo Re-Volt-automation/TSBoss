@@ -142,6 +142,12 @@ target_link_libraries(modeleval_tests PRIVATE Qt6::Core Qt6::Gui)
 target_include_directories(modeleval_tests PRIVATE src)
 add_test(NAME modeleval_tests COMMAND modeleval_tests)
 
+# Driver-parameter sanity checks (Qt6::Gui for QColor in BoxModel).
+add_executable(paramcheck_tests tests/paramcheck_tests.cpp)
+target_link_libraries(paramcheck_tests PRIVATE Qt6::Core Qt6::Gui)
+target_include_directories(paramcheck_tests PRIVATE src)
+add_test(NAME paramcheck_tests COMMAND paramcheck_tests)
+
 # Decimal-separator behaviour of the shared spinbox classes (headless).
 add_executable(spinbox_tests tests/spinbox_tests.cpp)
 target_link_libraries(spinbox_tests PRIVATE Qt6::Widgets)

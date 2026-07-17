@@ -79,6 +79,7 @@ private:
     void    recalculate(int index);
     void    recalculateAll();
     void    updateOptSealedHint();
+    void    updateParamWarnings();
     void    updatePlot();
     void    updateModelList();
     void    loadModelIntoFields(int index);
@@ -223,6 +224,7 @@ private:
     QLabel *m_resLblFc  = nullptr;  ///< "Fc:" label (becomes "fb:" for vented)
     QLabel *m_resLblQtc = nullptr;  ///< "Qtc:" label (hidden for vented)
     QLabel *m_statusLbl = nullptr;
+    QLabel *m_paramWarnLbl = nullptr;  ///< driver-parameter sanity warnings (left panel)
     QPushButton *m_btnExportPdf = nullptr;
 
     // Plot tabs

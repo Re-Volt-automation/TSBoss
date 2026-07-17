@@ -1,4 +1,5 @@
 #include "driverdetailwidget.h"
+#include "paramcheck.h"
 #include "theme.h"
 #include <QScrollArea>
 #include <QVBoxLayout>
@@ -88,6 +89,15 @@ void DriverDetailWidget::buildUi()
     titleRow->addWidget(btnEdit);
     titleRow->addWidget(btnDelete);
     layout->addLayout(titleRow);
+
+    // Sanity-check banner — physics-identity warnings from paramcheck.h
+    m_warnBanner = new QLabel;
+    m_warnBanner->setWordWrap(true);
+    m_warnBanner->setStyleSheet(themed(
+        "QLabel{color:%warn%; background:%panel%; border:1px solid %warn%;"
+        "border-radius:4px; padding:8px 12px;}"));
+    m_warnBanner->setVisible(false);
+    layout->addWidget(m_warnBanner);
 
     connect(btnUse,    &QPushButton::clicked, this, [this]{ if (m_currentId>=0) emit useRequested(m_currentId); });
     connect(btnEdit,   &QPushButton::clicked, this, [this]{ if (m_currentId>=0) emit editRequested(m_currentId); });
@@ -227,6 +237,24 @@ void DriverDetailWidget::loadDriver(const DriverRecord &r)
     m_currentId = r.id;
     auto fmt = [](double v, int d){ return QString::number(v,'f',d); };
 
+    // Physics-identity sanity checks — flags placeholder Rₑ, slipped
+    // decimals and mutually inconsistent Q values.
+    if (m_warnBanner) {
+        paramcheck::DriverParams p;
+        p.fs = r.fs;  p.Qms = r.Qms; p.Qes = r.Qes; p.Qts = r.Qts;
+        p.Re = r.Re;  p.mms_g = r.mms * 1000.0; p.BL = r.BL;
+        p.Sd_cm2 = r.Sd * 1e4; p.Vas_L = r.Vas * 1000.0;
+        QStringList w = paramcheck::driverParamWarnings(p);
+        if (w.isEmpty()) {
+            m_warnBanner->clear();
+            m_warnBanner->setVisible(false);
+        } else {
+            for (auto &s : w) s.prepend(QStringLiteral("⚠ "));
+            m_warnBanner->setText(w.join(QStringLiteral("\n")));
+            m_warnBanner->setVisible(true);
+        }
+    }
+
     m_lblMake  ->setText(r.make.isEmpty()         ? "–" : r.make);
     m_lblModel ->setText(r.model.isEmpty()        ? "–" : r.model);
     m_lblDate  ->setText(r.dateMeasured.isValid() ? r.dateMeasured.toString("dd MMM yyyy") : "–");
@@ -303,6 +331,7 @@ void DriverDetailWidget::loadDriver(const DriverRecord &r)
 void DriverDetailWidget::clear()
 {
     m_currentId = -1;
+    if (m_warnBanner) { m_warnBanner->clear(); m_warnBanner->setVisible(false); }
     for (auto *l : {m_lblVmeas, m_lblRs, m_lblVmode}) l->setText("–");
     for (auto *l : {m_lblMake, m_lblModel, m_lblDate, m_lblBy,
                     m_lblRe, m_lblFs, m_lblZmax, m_lblF1, m_lblF2,

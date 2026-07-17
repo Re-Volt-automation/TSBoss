@@ -25,6 +25,9 @@ signals:
 private:
     void buildUi();
 
+    // Sanity-check banner (paramcheck.h warnings)
+    QLabel *m_warnBanner = nullptr;
+
     // Identity
     QLabel *m_lblMake, *m_lblModel;
     QLabel *m_lblDate, *m_lblBy, *m_lblNotes;
