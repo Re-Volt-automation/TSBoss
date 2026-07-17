@@ -6,6 +6,7 @@
 #include "enclosurewidget.h"
 #include "tswizard.h"
 #include "theme.h"
+#include "noscrollspinbox.h"
 #include <QApplication>
 #include <QButtonGroup>
 #include <QRadioButton>
@@ -685,7 +686,7 @@ void MainWindow::showAdvancedSettings()
 
     auto mkSpin = [](double lo, double hi, double step, double def,
                      int dec, const QString &sfx) {
-        auto *s = new QDoubleSpinBox;
+        auto *s = new FlexibleDoubleSpinBox;
         s->setRange(lo, hi);
         s->setSingleStep(step);
         s->setDecimals(dec);
@@ -753,8 +754,8 @@ void MainWindow::showAdvancedSettings()
                            std::optional<double> curMax) -> RangeRow
     {
         auto *chk   = new QCheckBox("Fixed");
-        auto *spMin = new QDoubleSpinBox;
-        auto *spMax = new QDoubleSpinBox;
+        auto *spMin = new FlexibleDoubleSpinBox;
+        auto *spMax = new FlexibleDoubleSpinBox;
         for (auto *s : {spMin, spMax}) {
             s->setRange(loMin, hiMax);
             s->setDecimals(dec);

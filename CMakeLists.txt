@@ -142,6 +142,12 @@ target_link_libraries(modeleval_tests PRIVATE Qt6::Core Qt6::Gui)
 target_include_directories(modeleval_tests PRIVATE src)
 add_test(NAME modeleval_tests COMMAND modeleval_tests)
 
+# Decimal-separator behaviour of the shared spinbox classes (headless).
+add_executable(spinbox_tests tests/spinbox_tests.cpp)
+target_link_libraries(spinbox_tests PRIVATE Qt6::Widgets)
+target_include_directories(spinbox_tests PRIVATE src)
+add_test(NAME spinbox_tests COMMAND spinbox_tests)
+
 # Offscreen render smoke test for the plot widgets. Pulls in the widget
 # dependency closure; runs headless via QT_QPA_PLATFORM=offscreen.
 add_executable(plotrender_tests

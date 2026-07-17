@@ -2,6 +2,7 @@
 #include "theme.h"
 #include "driverrecord.h"
 #include "drivercsv.h"
+#include "noscrollspinbox.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QTableWidget>
@@ -376,7 +377,7 @@ void DriverListWidget::onUseClicked()
 
 QDoubleSpinBox *DriverListWidget::mkFilterSpin(double max, int dec, const QString &suffix)
 {
-    auto *s = new QDoubleSpinBox;
+    auto *s = new FlexibleDoubleSpinBox;
     s->setRange(0.0, max);
     s->setDecimals(dec);
     s->setSuffix(suffix);
