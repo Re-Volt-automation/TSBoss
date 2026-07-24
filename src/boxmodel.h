@@ -69,8 +69,16 @@ struct BoxModel
     // Flare
     int     portFlare = 0;  ///< 0=straight, 1=one end flared, 2=both ends flared
 
-    // Driver count
-    int     numDrivers   = 1;     ///< Number of identical drivers in the same cabinet
+    // Driver count — number of driver units in the cabinet. With Isobaric
+    // mounting each unit is a compound PAIR (the UI relabels to "# Pairs").
+    int     numDrivers   = 1;
+
+    // Isobaric (compound) mounting: two drivers acoustically locked by a
+    // coupling chamber act as one composite driver — Vas/2, mms×2, BL and
+    // Rₑ ×2 (pair internally series), Pe×2; fs/Q/Sd/Xmax unchanged.
+    // Baked into simulation copies by mounting::withMounting().
+    enum class Mounting { Normal = 0, Isobaric = 1 };
+    Mounting mounting = Mounting::Normal;
 
     // Multi-driver wiring mode (affects electrical parameter scaling in acoustic sim)
     enum class WiringMode { Series = 0, Parallel = 1, Separate = 2 };

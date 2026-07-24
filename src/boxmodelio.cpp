@@ -58,6 +58,7 @@ QJsonObject modelToJson(const BoxModel &m)
     obj["numPorts"]            = m.numPorts;
     obj["numDrivers"]          = m.numDrivers;
     obj["wiringMode"]          = static_cast<int>(m.wiringMode);
+    obj["mounting"]            = static_cast<int>(m.mounting);
     obj["portWallThick_mm"]       = m.portWallThick_mm;
     obj["portInsertDepth_mm"]     = m.portInsertDepth_mm;
     obj["portExtraSurfArea_cm2"]  = m.portExtraSurfArea_cm2;
@@ -133,6 +134,8 @@ BoxModel modelFromJson(const QJsonObject &obj)
     m.numDrivers  = std::max(1, obj["numDrivers"].toInt(1));
     m.wiringMode  = static_cast<BoxModel::WiringMode>(
                         std::clamp(obj["wiringMode"].toInt(0), 0, 2));
+    m.mounting    = static_cast<BoxModel::Mounting>(
+                        std::clamp(obj["mounting"].toInt(0), 0, 1));
     m.portWallThick_mm        = obj["portWallThick_mm"].toDouble(3.0);
     m.portInsertDepth_mm      = obj["portInsertDepth_mm"].toDouble(0.0);
     m.portExtraSurfArea_cm2   = obj["portExtraSurfArea_cm2"].toDouble(0.0);

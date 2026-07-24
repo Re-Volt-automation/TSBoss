@@ -8,6 +8,7 @@
 #include "diagrams/portdiagram.h"
 #include "noscrollspinbox.h"
 #include "driverdetailwidget.h"
+#include "mounting.h"
 #include "paramcheck.h"
 #include "theme.h"
 #include "pdfreport.h"
@@ -675,7 +676,8 @@ void EnclosureWidget::buildUi()
         // Number of drivers row
         auto *ndRow = new QHBoxLayout;
         ndRow->setSpacing(4);
-        ndRow->addWidget(mkFormLabel("# Drivers:"));
+        m_numDriversLbl = mkFormLabel("# Drivers:");
+        ndRow->addWidget(m_numDriversLbl);
         m_numDrivers = new NoScrollIntSpinBox;
         m_numDrivers->setRange(1, 16);
         m_numDrivers->setValue(1);
@@ -699,6 +701,33 @@ void EnclosureWidget::buildUi()
             ndRow->addWidget(btn);
         }
         ndRow->addStretch();
+
+        // Mounting row — Normal or Isobaric (compound pairs)
+        auto *mtRow = new QHBoxLayout;
+        mtRow->addWidget(mkFormLabel("Mounting:"));
+        m_mounting = new QComboBox;
+        m_mounting->addItem("Normal");
+        m_mounting->addItem("Isobaric (pairs)");
+        m_mounting->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        m_mounting->setToolTip(
+            "Isobaric: two drivers acoustically locked by a coupling chamber\n"
+            "act as one composite driver — same response in HALF the box\n"
+            "volume, at −3 dB efficiency and double the power handling.");
+        mtRow->addWidget(m_mounting);
+        m_isoInfoLbl = new QLabel("pair: Vas·½ · −3 dB · 2×Pe");
+        m_isoInfoLbl->setStyleSheet(themed(
+            "color:%muted%; font-family:'IBM Plex Mono',monospace;"
+            "font-size:8pt; padding-left:6px;"));
+        m_isoInfoLbl->setVisible(false);
+        mtRow->addWidget(m_isoInfoLbl);
+        mtRow->addStretch();
+        connect(m_mounting, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int idx) {
+            const bool iso = (idx == 1);
+            if (m_numDriversLbl) m_numDriversLbl->setText(iso ? "# Pairs:" : "# Drivers:");
+            if (m_isoInfoLbl)    m_isoInfoLbl->setVisible(iso);
+            onParamChanged();
+        });
 
         m_vcTypeLbl = new QLabel("SVC");
         m_vcTypeLbl->setStyleSheet(themed(
@@ -786,6 +815,7 @@ void EnclosureWidget::buildUi()
         col->addWidget(btnReset);
         col->addWidget(m_btnViewDriver);
         col->addLayout(ndRow);
+        col->addLayout(mtRow);
         col->addWidget(m_vcTypeLbl);
         col->addLayout(amRow);
         col->addWidget(m_addedMassEffLbl);
@@ -2823,6 +2853,9 @@ void EnclosureWidget::onParamChanged()
     if (m_portWalls)  model.portWalls  = m_portWalls->currentIndex();
     if (m_numPorts)   model.numPorts   = m_numPorts->value();
     if (m_numDrivers) model.numDrivers = m_numDrivers->value();
+    if (m_mounting)   model.mounting   = m_mounting->currentIndex() == 1
+                                             ? BoxModel::Mounting::Isobaric
+                                             : BoxModel::Mounting::Normal;
     if (m_wiringGroup) model.wiringMode = static_cast<BoxModel::WiringMode>(m_wiringGroup->checkedId());
     // portWidth_mm stores round diameter (shape=0) OR rectangular width (shape=1)
     if (model.portShape == 0 && m_inPortDiam)
@@ -3058,6 +3091,14 @@ void EnclosureWidget::loadModelIntoFields(int index)
         m_numDrivers->setValue(std::max(1, model.numDrivers));
         m_numDrivers->blockSignals(false);
     }
+    if (m_mounting) {
+        const bool iso = mounting::isIsobaric(model);
+        m_mounting->blockSignals(true);
+        m_mounting->setCurrentIndex(iso ? 1 : 0);
+        m_mounting->blockSignals(false);
+        if (m_numDriversLbl) m_numDriversLbl->setText(iso ? "# Pairs:" : "# Drivers:");
+        if (m_isoInfoLbl)    m_isoInfoLbl->setVisible(iso);
+    }
     if (m_wiringBtnSeries && m_wiringBtnParallel && m_wiringBtnSeparate) {
         m_wiringBtnSeries  ->blockSignals(true);
         m_wiringBtnParallel->blockSignals(true);
@@ -3205,6 +3246,9 @@ void EnclosureWidget::clearFields()
     if (m_portWalls)   { m_portWalls->blockSignals(true);   m_portWalls->setCurrentIndex(0);  m_portWalls->blockSignals(false); }
     if (m_numPorts)    { m_numPorts->blockSignals(true);    m_numPorts->setValue(1);           m_numPorts->blockSignals(false); }
     if (m_numDrivers)  { m_numDrivers->blockSignals(true);  m_numDrivers->setValue(1);         m_numDrivers->blockSignals(false); }
+    if (m_mounting)    { m_mounting->blockSignals(true);    m_mounting->setCurrentIndex(0);    m_mounting->blockSignals(false); }
+    if (m_numDriversLbl) m_numDriversLbl->setText("# Drivers:");
+    if (m_isoInfoLbl)    m_isoInfoLbl->setVisible(false);
     if (m_wiringBtnSeries) { m_wiringBtnSeries->blockSignals(true); m_wiringBtnSeries->setChecked(true); m_wiringBtnSeries->blockSignals(false); }
     if (m_portFlare)   { m_portFlare->blockSignals(true);   m_portFlare->setCurrentIndex(0);   m_portFlare->blockSignals(false); }
     if (m_portFrontFlare) { m_portFrontFlare->blockSignals(true); m_portFrontFlare->setCurrentIndex(0); m_portFrontFlare->blockSignals(false); }
@@ -3281,6 +3325,7 @@ void EnclosureWidget::refreshAutoName(int index)
     else if (isBP6(m))    typePart = "BP6";
     else if (isVented(m)) typePart = "vented";
     else                  typePart = "sealed";
+    if (mounting::isIsobaric(m)) typePart += " iso";
 
     m.name = QString("%1 / %2 / %3").arg(driverPart, volPart, typePart);
 }
@@ -3292,10 +3337,11 @@ void EnclosureWidget::recalculate(int index)
     if (index < 0 || index >= m_models.size()) return;
     auto &m = m_models[index];
 
-    // Effective driver after baking in any added cone mass.  All scalar
-    // results (Fc, Qtc, η, SPL, f3) are computed against this so the
-    // displayed numbers reflect the loaded driver.
-    const BoxModel me = withEffectiveMass(m);
+    // Effective driver after baking in any added cone mass, then the
+    // mounting mode (isobaric pair: Vas/2, mms×2, BL/Rₑ×2, Pe×2). All
+    // scalar results (Fc, Qtc, η, SPL, f3) are computed against this so
+    // the displayed numbers reflect the loaded composite driver.
+    const BoxModel me = mounting::withMounting(withEffectiveMass(m));
 
     const double N       = static_cast<double>(me.numDrivers);
     const double Vas_raw = me.Vas_L * 1e-3;
@@ -3374,13 +3420,14 @@ void EnclosureWidget::recalculateAll()
 
 void EnclosureWidget::updatePlot()
 {
-    // Bake any added cone mass into a per-model effective copy before
-    // handing to the plots — they read fs/Qms/mms/etc. directly when
-    // computing curves and have no notion of addedMass_g.
+    // Bake any added cone mass and the mounting mode into a per-model
+    // effective copy before handing to the plots — they read
+    // fs/Qms/mms/etc. directly and have no notion of addedMass_g or
+    // isobaric pairs.
     QList<BoxModel> eff;
     eff.reserve(m_models.size());
     for (const auto &m : m_models) {
-        BoxModel mm = withEffectiveMass(m);
+        BoxModel mm = mounting::withMounting(withEffectiveMass(m));
         // Preserve precomputed result fields populated by recalculate()
         mm.alpha = m.alpha; mm.Fc = m.Fc; mm.Qtc = m.Qtc;
         mm.f3 = m.f3; mm.eta = m.eta; mm.spl = m.spl;

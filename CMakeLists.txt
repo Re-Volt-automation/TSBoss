@@ -142,6 +142,12 @@ target_link_libraries(modeleval_tests PRIVATE Qt6::Core Qt6::Gui)
 target_include_directories(modeleval_tests PRIVATE src)
 add_test(NAME modeleval_tests COMMAND modeleval_tests)
 
+# Isobaric mounting transform + vented-equivalence characterization.
+add_executable(isobaric_tests tests/isobaric_tests.cpp src/tscalculator.cpp)
+target_link_libraries(isobaric_tests PRIVATE Qt6::Core Qt6::Gui)
+target_include_directories(isobaric_tests PRIVATE src)
+add_test(NAME isobaric_tests COMMAND isobaric_tests)
+
 # Driver-parameter sanity checks (Qt6::Gui for QColor in BoxModel).
 add_executable(paramcheck_tests tests/paramcheck_tests.cpp)
 target_link_libraries(paramcheck_tests PRIVATE Qt6::Core Qt6::Gui)

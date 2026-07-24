@@ -108,6 +108,9 @@ private:
     // Driver selection
     QComboBox         *m_driverCombo     = nullptr;
     QSpinBox          *m_numDrivers      = nullptr;
+    QLabel            *m_numDriversLbl   = nullptr;  ///< "# Drivers:" / "# Pairs:"
+    QComboBox         *m_mounting        = nullptr;  ///< Normal / Isobaric mounting
+    QLabel            *m_isoInfoLbl      = nullptr;  ///< isobaric consequences hint
     QPushButton       *m_btnViewDriver   = nullptr;
     QLabel            *m_vcTypeLbl       = nullptr;  ///< SVC / DVC wiring label
 

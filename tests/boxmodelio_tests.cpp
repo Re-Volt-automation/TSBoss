@@ -30,6 +30,7 @@ static BoxModel makeFullModel()
     m.portWallThick_mm = 4.5; m.portInsertDepth_mm = 10.0;
     m.portExtraSurfArea_cm2 = 8.0; m.portFlare = 2;
     m.numDrivers = 2; m.wiringMode = BoxModel::WiringMode::Parallel;
+    m.mounting   = BoxModel::Mounting::Isobaric;
     m.isDVC = true; m.dvcWiring = 1;
     m.xmax_mm = 9.5; m.xlim_mm = 14.0; m.pe_W = 350.0;
     m.addedMass_g = 15.0; m.visible = false;
@@ -75,6 +76,7 @@ int main()
               && b.portFrontFlare == a.portFrontFlare,      "roundtrip: front port geometry");
         check(b.numDrivers == a.numDrivers && b.wiringMode == a.wiringMode,
                                                             "roundtrip: drivers/wiring");
+        check(b.mounting == a.mounting,                     "roundtrip: isobaric mounting");
         check(b.isDVC == a.isDVC && b.dvcWiring == a.dvcWiring, "roundtrip: DVC");
         check(b.xmax_mm == a.xmax_mm && b.xlim_mm == a.xlim_mm && b.pe_W == a.pe_W,
                                                             "roundtrip: large-signal limits");
