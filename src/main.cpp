@@ -13,7 +13,7 @@ int main(int argc, char *argv[])
     app.setApplicationDisplayName("TSBoss – T/S Parameter Manager");
     app.setOrganizationName("TSBoss");
     app.setOrganizationDomain("tsboss.local");
-    app.setApplicationVersion("1.2.0");
+    app.setApplicationVersion("1.2.1");
 
     // Window / taskbar icon — multi-size .ico embedded via resources.qrc.
     app.setWindowIcon(QIcon(":/TSBoss.ico"));
