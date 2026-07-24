@@ -14,6 +14,8 @@ static void check(bool cond, const char *msg) {
 struct Probe : FlexibleDoubleSpinBox {
     using FlexibleDoubleSpinBox::validate;
     using FlexibleDoubleSpinBox::valueFromText;
+    using FlexibleDoubleSpinBox::focusInEvent;
+    using QAbstractSpinBox::lineEdit;
 };
 
 int main(int argc, char **argv)
@@ -65,6 +67,25 @@ int main(int argc, char **argv)
         s.interpretText();
         check(std::fabs(s.value() - 49.3) < 1e-9,
               "NoScrollSpinBox: typed '49.3' commits as 49.3, not 493");
+    }
+
+    // ── Mouse focus selects the content, so typing overwrites the
+    //    sentinel instead of appending around the em dash ─────────────
+    //    (focusInEvent is driven directly: a headless test window can't
+    //    become active, so real focus events are never delivered.)
+    {
+        Probe s;
+        s.setDecimals(2);
+        s.setRange(0.0, 100.0);
+        s.setSpecialValueText("—");
+        s.show();
+        QFocusEvent ev(QEvent::FocusIn, Qt::MouseFocusReason);
+        s.focusInEvent(&ev);
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 100);
+        check(s.lineEdit()->hasSelectedText(),
+              "mouse focus selects the whole entry");
+        check(s.lineEdit()->selectedText() == s.lineEdit()->text(),
+              "selection covers the full text");
     }
 
     if (g_failures) std::printf("\n%d FAILURE(S)\n", g_failures);
