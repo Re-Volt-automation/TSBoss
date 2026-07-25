@@ -84,6 +84,50 @@ int main()
               "equivalence: eta anchor gives -3 dB at equal power");
     }
 
+    // ── Parallel pair: coils see full voltage — BL unchanged, Re/2 ─
+    {
+        BoxModel m = makeDriver();
+        m.mounting   = BoxModel::Mounting::Isobaric;
+        m.wiringMode = BoxModel::WiringMode::Parallel;
+        const BoxModel p = mounting::withMounting(m);
+        check(std::fabs(p.BL - 11.96)   < 1e-9, "parallel pair: BL unchanged");
+        check(std::fabs(p.Re - 3.6/2.0) < 1e-9, "parallel pair: Re halved");
+        check(std::fabs(p.mms_g - 2*56.2) < 1e-9 && std::fabs(p.Vas_L - 15.9/2) < 1e-9,
+              "parallel pair: mechanical side identical to series");
+        // Qes = 2π·fs·mms·Re/BL² must be invariant for both wirings
+        const double qes = 2.0*3.14159265358979*p.fs*(p.mms_g*1e-3)*p.Re/(p.BL*p.BL);
+        check(std::fabs(qes - 0.370) < 0.01, "parallel pair: Qes invariant");
+    }
+
+    // ── Parallel equivalence: Z halves, same SPL per volt ─────────
+    {
+        BoxModel iso = makeDriver();
+        iso.mounting   = BoxModel::Mounting::Isobaric;
+        iso.wiringMode = BoxModel::WiringMode::Parallel;
+        iso.encType  = BoxModel::EncType::Vented;
+        iso.volumeL  = 20.0; iso.fb = 30.0; iso.QL = 7.0;
+        iso.portShape = 0; iso.portWidth_mm = 75.0; iso.numPorts = 1;
+        const BoxModel pair = mounting::withMounting(iso);
+
+        BoxModel single = makeDriver();
+        single.wiringMode = BoxModel::WiringMode::Parallel;   // N=1: no-op
+        single.encType  = BoxModel::EncType::Vented;
+        single.volumeL  = 40.0; single.fb = 30.0; single.QL = 7.0;
+        single.portShape = 0; single.portWidth_mm = 75.0; single.numPorts = 1;
+
+        bool shapeOk = true, zOk = true;
+        for (double f : {12., 30., 70., 200., 1000.}) {
+            const double rIso = pp::portedSplRaw(pair,   f, 0.0);
+            const double rSgl = pp::portedSplRaw(single, f, 0.0);
+            if (rSgl <= 0 || std::fabs(rIso / rSgl - 1.0) > 1e-6) shapeOk = false;
+            const double zIso = pp::portedImpedance(pair,   f, 0.0);
+            const double zSgl = pp::portedImpedance(single, f, 0.0);
+            if (std::fabs(zIso / zSgl - 0.5) > 1e-6) zOk = false;
+        }
+        check(shapeOk, "parallel equivalence: same output per volt");
+        check(zOk,     "parallel equivalence: impedance exactly halves");
+    }
+
     // ── Thermal capacity flows through the baked Pe ───────────────
     {
         BoxModel iso = makeDriver();

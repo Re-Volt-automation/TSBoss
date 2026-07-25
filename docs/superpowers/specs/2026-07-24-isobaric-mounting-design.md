@@ -17,7 +17,7 @@ The pair behaves as one composite driver:
 | fs, Qms, Qes, Qts | unchanged | ×2 factors cancel |
 | Vas | ÷ 2 | two suspensions in parallel |
 | mms | × 2 | coupled moving masses |
-| BL, Rₑ | × 2 | pair internally series |
+| BL, Rₑ | × 2 (series/separate) · BL×1, Rₑ÷2 (parallel) | pair coil wiring follows the wiring radio |
 | Sd, Xmax, Xlim | unchanged | one cone faces the load |
 | Pe | × 2 | two voice coils |
 | η₀ | ÷ 2 (−3 dB) | the cost of the half-size box |
