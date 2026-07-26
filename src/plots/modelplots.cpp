@@ -18,12 +18,27 @@ using namespace pp;
 // ════════════════════════════════════════════════════════════════════
 ResponsePlot::ResponsePlot(QWidget *parent) : PlotBase(300, 1.0, parent) {}
 
+void ResponsePlot::setCabinEnv(const std::optional<cabingain::CabinEnv> &env)
+{
+    m_cabin = env;
+    update();
+}
 
 void ResponsePlot::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
     p.fillRect(rect(), CLR_PAGE_BG());
+
+    // In-cabin correction: shadow hpfDb locally so every SPL expression in
+    // this paint routine — range scan, all curve branches, the cursor —
+    // picks up the cabin term without scattered per-site edits. The
+    // correction is 0 at/above 80 Hz, so the ref/±3 dB passband anchors
+    // stay consistent with the curves.
+    auto hpfDb = [this](const BoxModel &mm, double ff) {
+        return ::hpfDb(mm, ff)
+             + (m_cabin ? cabingain::correctionDb(*m_cabin, ff) : 0.0);
+    };
 
     const int ml = 58, mr = 16, mt = 16, mb = 42;
     const QRectF area(ml, mt, width() - ml - mr, height() - mt - mb);
@@ -283,6 +298,15 @@ void ResponsePlot::paintEvent(QPaintEvent *)
         drawCurve(m_models[m_activeIdx], true);
     p.setClipping(false);
 
+    // In-cabin validity edge — the model is a fit below 80 Hz only.
+    if (m_cabin) {
+        const double xe = xPx(cabingain::kAnchorHz);
+        p.setPen(QPen(CLR_GREY_LT(), 1.0, Qt::DotLine));
+        p.drawLine(QPointF(xe, area.top()), QPointF(xe, area.bottom()));
+        drawMarkerLabel(p, area, xe, area.bottom() - 22, CLR_GREY(),
+                        QStringLiteral("cabin fit ≤ 80 Hz"));
+    }
+
     // Legend (top-right of plot area)
     {
         QVector<LegendEntry> leg;
@@ -303,6 +327,12 @@ void ResponsePlot::paintEvent(QPaintEvent *)
                 leg.append({m.color, "Rear port",  Qt::DashLine, active, true});
             }
         }
+        if (m_cabin && !leg.isEmpty())
+            leg.append({CLR_GREY(),
+                        QString("in-cabin  f0=%1 Hz  Q=%2")
+                            .arg(m_cabin->f0, 0, 'f', 0)
+                            .arg(m_cabin->Q, 0, 'f', 1),
+                        Qt::DotLine, true, true});
         drawLegend(p, area, leg);
     }
 

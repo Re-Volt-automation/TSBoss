@@ -8,9 +8,12 @@
 #include "diagrams/portdiagram.h"
 #include "noscrollspinbox.h"
 #include "driverdetailwidget.h"
+#include "cabingain.h"
 #include "mounting.h"
 #include "paramcheck.h"
 #include "theme.h"
+#include <QDialogButtonBox>
+#include <QSettings>
 #include "pdfreport.h"
 #include <complex>
 #include <QVBoxLayout>
@@ -268,6 +271,7 @@ EnclosureWidget::EnclosureWidget(DriverDatabase *db, QWidget *parent)
 {
     buildUi();
     refreshDriverList();
+    rebuildCabinCombo();   // restore persisted cabin-env selection
     // T/S spinboxes carry an inline stylesheet for the lock/unlock visual,
     // so a live theme switch must re-run that styling.
     connect(&Theme::instance(), &Theme::themeChanged, this, [this] {
@@ -589,6 +593,24 @@ void EnclosureWidget::buildUi()
         hb->addWidget(pwrLbl); hb->addWidget(m_splPower);
         m_perDriverPower = mkPerDriverRadios(hb);
         hb->addStretch();
+
+        // In-cabin environment selector (cabingain.h)
+        auto *cabLbl = new QLabel("CABIN");
+        cabLbl->setStyleSheet(themed(
+            "color:%accent%; font-family:'IBM Plex Sans',sans-serif;"
+            "font-weight:600; font-size:8.5pt; letter-spacing:1.5px;"
+            "padding-right:6px;"));
+        m_cabinCombo = new QComboBox;
+        m_cabinCombo->setMinimumWidth(140);
+        m_cabinCombo->setToolTip(
+            "Apply a fitted in-cabin (vehicle) low-frequency gain model to the\n"
+            "SPL curves. Environments are created from a nearfield + listening-\n"
+            "position REW sweep pair via Manage… — valid below 80 Hz.");
+        hb->addWidget(cabLbl);
+        hb->addWidget(m_cabinCombo);
+        connect(m_cabinCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, &EnclosureWidget::onCabinComboChanged);
+
         vb->addLayout(hb);
         vb->addWidget(m_splPlot, 1);
         connect(m_splPower, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
@@ -2219,6 +2241,188 @@ void EnclosureWidget::updateParamWarnings()
         m_paramWarnLbl->setText(w.join(QStringLiteral("\n\n")));
         m_paramWarnLbl->setVisible(true);
     }
+}
+
+// ── Cabin-gain environments ──────────────────────────────────────
+// Named {f0, Q} environments persisted app-wide in QSettings — they
+// belong to a vehicle, not to any one project.
+
+struct NamedCabinEnv { QString name; cabingain::CabinEnv env; };
+
+static QList<NamedCabinEnv> loadCabinEnvs()
+{
+    QList<NamedCabinEnv> out;
+    QSettings s;
+    const auto doc = QJsonDocument::fromJson(s.value("cabin/envs").toByteArray());
+    const auto arr = doc.array();
+    for (const auto &v : arr) {
+        const auto o = v.toObject();
+        NamedCabinEnv e{o["name"].toString(),
+                        {o["f0"].toDouble(30.0), o["Q"].toDouble(3.0)}};
+        if (!e.name.isEmpty()) out.append(e);
+    }
+    return out;
+}
+
+static void saveCabinEnvs(const QList<NamedCabinEnv> &envs)
+{
+    QJsonArray arr;
+    for (const auto &e : envs) {
+        QJsonObject o;
+        o["name"] = e.name; o["f0"] = e.env.f0; o["Q"] = e.env.Q;
+        arr.append(o);
+    }
+    QSettings().setValue("cabin/envs",
+                         QJsonDocument(arr).toJson(QJsonDocument::Compact));
+}
+
+void EnclosureWidget::rebuildCabinCombo()
+{
+    if (!m_cabinCombo) return;
+    const auto envs = loadCabinEnvs();
+    const QString active = QSettings().value("cabin/active").toString();
+    m_cabinCombo->blockSignals(true);
+    m_cabinCombo->clear();
+    m_cabinCombo->addItem("Off");
+    int sel = 0;
+    for (int i = 0; i < envs.size(); ++i) {
+        m_cabinCombo->addItem(envs[i].name);
+        if (envs[i].name == active) sel = i + 1;
+    }
+    m_cabinCombo->addItem("Manage…");
+    m_cabinCombo->setCurrentIndex(sel);
+    m_cabinCombo->blockSignals(false);
+
+    std::optional<cabingain::CabinEnv> env;
+    if (sel > 0) env = envs[sel - 1].env;
+    if (m_splPlot) m_splPlot->setCabinEnv(env);
+}
+
+void EnclosureWidget::onCabinComboChanged(int index)
+{
+    if (!m_cabinCombo) return;
+    if (index == m_cabinCombo->count() - 1) {          // Manage…
+        showCabinManager();
+        rebuildCabinCombo();
+        return;
+    }
+    QSettings().setValue("cabin/active",
+                         index <= 0 ? QString() : m_cabinCombo->itemText(index));
+    rebuildCabinCombo();
+}
+
+void EnclosureWidget::showCabinManager()
+{
+    auto envs = loadCabinEnvs();
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Cabin environments");
+    dlg.setMinimumWidth(460);
+    auto *vb = new QVBoxLayout(&dlg);
+
+    auto *list = new QListWidget;
+    auto refill = [&] {
+        list->clear();
+        for (const auto &e : envs)
+            list->addItem(QString("%1  —  f0 %2 Hz · Q %3")
+                          .arg(e.name)
+                          .arg(e.env.f0, 0, 'f', 1)
+                          .arg(e.env.Q, 0, 'f', 2));
+    };
+    refill();
+    vb->addWidget(list);
+
+    auto *form = new QFormLayout;
+    auto *name = new QLineEdit;
+    auto *f0   = new FlexibleDoubleSpinBox;
+    f0->setRange(10.0, 120.0); f0->setDecimals(1);
+    f0->setValue(30.0); f0->setSuffix(" Hz");
+    auto *q    = new FlexibleDoubleSpinBox;
+    q->setRange(0.2, 10.0); q->setDecimals(2); q->setValue(3.0);
+    form->addRow("Name:", name);
+    form->addRow("Resonance f0:", f0);
+    form->addRow("Damping Q:", q);
+    vb->addLayout(form);
+
+    auto *status = new QLabel;
+    status->setWordWrap(true);
+    status->setStyleSheet(themed("color:%muted%; font-size:8.5pt;"));
+    status->setText("Import && fit reads a nearfield + listening-position REW "
+                    "text-export pair from the same session and level — power, "
+                    "chain and crossover cancel in the pairing.");
+    vb->addWidget(status);
+
+    connect(list, &QListWidget::currentRowChanged, &dlg, [&](int row) {
+        if (row < 0 || row >= envs.size()) return;
+        name->setText(envs[row].name);
+        f0->setValue(envs[row].env.f0);
+        q->setValue(envs[row].env.Q);
+    });
+
+    auto *hb = new QHBoxLayout;
+    auto *btnFit = new QPushButton("Import && fit…");
+    auto *btnAdd = new QPushButton("Add / update");
+    auto *btnDel = new QPushButton("Delete selected");
+    hb->addWidget(btnFit); hb->addWidget(btnAdd); hb->addWidget(btnDel);
+    vb->addLayout(hb);
+
+    connect(btnFit, &QPushButton::clicked, &dlg, [&] {
+        const QString nfPath = QFileDialog::getOpenFileName(
+            &dlg, "Nearfield sweep (REW text export)",
+            QDir::homePath(), "Text files (*.txt)");
+        if (nfPath.isEmpty()) return;
+        const QString seatPath = QFileDialog::getOpenFileName(
+            &dlg, "Listening-position sweep (same session && level)",
+            QFileInfo(nfPath).absolutePath(), "Text files (*.txt)");
+        if (seatPath.isEmpty()) return;
+        QFile fn(nfPath), fs(seatPath);
+        if (!fn.open(QIODevice::ReadOnly | QIODevice::Text) ||
+            !fs.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            status->setText("Could not open the selected files.");
+            return;
+        }
+        const auto r = cabingain::fitFromSweepPair(
+            QString::fromUtf8(fn.readAll()), QString::fromUtf8(fs.readAll()));
+        if (!r.ok) {
+            status->setText("Fit failed — are these REW text exports with "
+                            "data below 80 Hz?");
+            return;
+        }
+        f0->setValue(r.env.f0);
+        q->setValue(r.env.Q);
+        if (name->text().trimmed().isEmpty())
+            name->setText(QFileInfo(seatPath).baseName());
+        status->setText(QString("Fitted f0 = %1 Hz, Q = %2 — RMS %3 dB over "
+                                "10–80 Hz. Name it and press Add / update.")
+                        .arg(r.env.f0, 0, 'f', 1)
+                        .arg(r.env.Q, 0, 'f', 2)
+                        .arg(r.rms, 0, 'f', 2));
+    });
+
+    connect(btnAdd, &QPushButton::clicked, &dlg, [&] {
+        const QString n = name->text().trimmed();
+        if (n.isEmpty()) { status->setText("Give the environment a name first."); return; }
+        bool updated = false;
+        for (auto &e : envs)
+            if (e.name == n) { e.env = {f0->value(), q->value()}; updated = true; }
+        if (!updated) envs.append({n, {f0->value(), q->value()}});
+        saveCabinEnvs(envs);
+        refill();
+        status->setText(QString("%1 %2.").arg(updated ? "Updated" : "Added", n));
+    });
+
+    connect(btnDel, &QPushButton::clicked, &dlg, [&] {
+        const int row = list->currentRow();
+        if (row < 0 || row >= envs.size()) return;
+        envs.removeAt(row);
+        saveCabinEnvs(envs);
+        refill();
+    });
+
+    auto *bb = new QDialogButtonBox(QDialogButtonBox::Close);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::accept);
+    vb->addWidget(bb);
+    dlg.exec();
 }
 
 void EnclosureWidget::updateOptSealedHint()

@@ -142,6 +142,12 @@ target_link_libraries(modeleval_tests PRIVATE Qt6::Core Qt6::Gui)
 target_include_directories(modeleval_tests PRIVATE src)
 add_test(NAME modeleval_tests COMMAND modeleval_tests)
 
+# Cabin-gain environment: correction shape, REW parsing, Helmholtz fit.
+add_executable(cabingain_tests tests/cabingain_tests.cpp)
+target_link_libraries(cabingain_tests PRIVATE Qt6::Core)
+target_include_directories(cabingain_tests PRIVATE src)
+add_test(NAME cabingain_tests COMMAND cabingain_tests)
+
 # Isobaric mounting transform + vented-equivalence characterization.
 add_executable(isobaric_tests tests/isobaric_tests.cpp src/tscalculator.cpp)
 target_link_libraries(isobaric_tests PRIVATE Qt6::Core Qt6::Gui)

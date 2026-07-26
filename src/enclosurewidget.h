@@ -80,6 +80,9 @@ private:
     void    recalculateAll();
     void    updateOptSealedHint();
     void    updateParamWarnings();
+    void    rebuildCabinCombo();          ///< refill + apply the cabin-env selection
+    void    onCabinComboChanged(int index);
+    void    showCabinManager();
     void    updatePlot();
     void    updateModelList();
     void    loadModelIntoFields(int index);
@@ -250,6 +253,7 @@ private:
     QDoubleSpinBox   *m_excPower  = nullptr;
     QDoubleSpinBox   *m_pvPower   = nullptr;
     QDoubleSpinBox   *m_splPower  = nullptr;
+    QComboBox        *m_cabinCombo = nullptr;  ///< SPL tab: Off / env… / Manage
 
     // Multi-driver wiring mode controls (in ndRow next to # Drivers)
     QButtonGroup     *m_wiringGroup       = nullptr;

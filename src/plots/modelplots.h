@@ -1,19 +1,24 @@
 #pragma once
 #include "plotbase.h"
+#include "cabingain.h"
 
 // ─────────────────────────────────────────────────────────────────
 //  The model plots. All state and interaction live in PlotBase;
 //  each subclass only paints.
 // ─────────────────────────────────────────────────────────────────
 
-/// Log-frequency / dB SPL curves with cone/port decomposition.
+/// Log-frequency / dB SPL curves with cone/port decomposition and an
+/// optional in-cabin correction (cabingain.h) valid below 80 Hz.
 class ResponsePlot : public PlotBase
 {
     Q_OBJECT
 public:
     explicit ResponsePlot(QWidget *parent = nullptr);
+    void setCabinEnv(const std::optional<cabingain::CabinEnv> &env);
 protected:
     void paintEvent(QPaintEvent *) override;
+private:
+    std::optional<cabingain::CabinEnv> m_cabin;
 };
 
 /// Group delay [ms] vs frequency.
