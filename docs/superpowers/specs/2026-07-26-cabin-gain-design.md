@@ -17,10 +17,26 @@ one vehicle across closed / window cracked / window open / 1 door / 2 doors:
 f0 rose 23→28→32→36→54 Hz and Q fell 4.6→1.8, both monotone with leak, and
 the 2-parameter fit held every state to 1.1–1.9 dB RMS over 10–80 Hz.
 
-The applied correction is the fitted shape re-anchored to 0 dB at 80 Hz and
-switched off above — the modal region is position-dependent and no
-low-order model should pretend to capture it. A dotted "cabin fit ≤ 80 Hz"
-marker draws the honesty boundary on the plot.
+The environment carries a third measured parameter: **gain**, the fitted
+pressure-zone plateau level relative to the 150–400 Hz midband modal
+average of the same transfer. The applied correction below 80 Hz is
+`gain + shape(f)`; between 80 and 160 Hz it log-tapers from the 80 Hz
+value to zero (no hard anchor point — a single anchor frequency can sit
+in a positional dip, and the measured car's 80 Hz does: ~11 dB below
+midband at the seat, closed). Above 160 Hz the correction is zero — the
+modal region is position-dependent and no low-order model should pretend
+to capture it. A dotted "cabin fit ≤ 80 Hz" marker draws the honesty
+boundary on the plot.
+
+Measured gains on the ladder: closed +11.5 dB, window cracked +6.2,
+window open +3.5, 1 door +4.7, 2 doors +5.0 (closed car at 20 Hz:
+gain + shape = +21.4 dB over anechoic).
+
+The crossover left in the chain during the capture session is harmless:
+it cancels in the seat − nearfield division, and the 150–400 Hz baseline
+was verified signal-dominated (seat midband *fell* 7 dB when the doors
+opened — noise floor would have risen — and nearfield midband held at
+82–83 dB across all five states).
 
 ## Capture protocol (power-agnostic)
 

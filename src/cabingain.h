@@ -15,22 +15,27 @@
 //  RMS 1.1–1.9 dB per state with just these two parameters).
 //
 //  The correction applied to a predicted anechoic SPL curve is the
-//  fitted shape re-anchored to 0 dB at 80 Hz, and 0 above — beyond
-//  the pressure zone the field is modal and position-dependent, which
-//  no low-order model should pretend to capture.
+//  measured gain (fitted plateau vs the 150–400 Hz midband average)
+//  plus the resonance shape below 80 Hz, log-tapered to 0 by 160 Hz —
+//  beyond the pressure zone the field is modal and position-dependent,
+//  which no low-order model should pretend to capture.
 //
 //  Header-only and unit-tested (tests/cabingain_tests.cpp).
 // ─────────────────────────────────────────────────────────────────
 
 namespace cabingain {
 
-/// Upper edge of the model's validity band [Hz]; the correction is
-/// anchored to 0 dB here and switched off above.
-inline constexpr double kAnchorHz = 80.0;
+/// Upper edge of the fit's validity band [Hz].
+inline constexpr double kFitEdgeHz  = 80.0;
+/// The correction log-tapers from its fit-edge value to 0 dB here —
+/// no hard anchor point, because any single frequency may sit in a
+/// positional null (as the measured car's 80 Hz did).
+inline constexpr double kTaperEndHz = 160.0;
 
 struct CabinEnv {
-    double f0 = 30.0;   ///< cabin/leak Helmholtz resonance [Hz]
-    double Q  = 3.0;    ///< leak damping
+    double f0   = 30.0;  ///< cabin/leak Helmholtz resonance [Hz]
+    double Q    = 3.0;   ///< leak damping
+    double gain = 6.0;   ///< pressure-zone floor vs the 150–400 Hz midband [dB]
 };
 
 /// Raw second-order resonance magnitude [dB] (un-anchored).
@@ -42,12 +47,21 @@ inline double shapeDb(const CabinEnv &e, double f)
     return -10.0 * std::log10(std::max(d, 1e-12));
 }
 
-/// Correction added to an anechoic SPL curve: the fitted shape
-/// relative to its 80 Hz value; exactly 0 at and above the anchor.
+/// Correction added to an anechoic SPL curve. Below the fit edge:
+/// the measured gain plus the resonance shape (both calibrated
+/// against the 150–400 Hz midband modal average during fitting).
+/// Between the fit edge and the taper end the value decays linearly
+/// in log-frequency to 0; zero above.
 inline double correctionDb(const CabinEnv &e, double f)
 {
-    if (f >= kAnchorHz) return 0.0;
-    return shapeDb(e, f) - shapeDb(e, kAnchorHz);
+    if (f >= kTaperEndHz || f <= 0.0) return 0.0;
+    if (f >= kFitEdgeHz) {
+        const double edgeVal = e.gain + shapeDb(e, kFitEdgeHz);
+        const double t = std::log(kTaperEndHz / f)
+                       / std::log(kTaperEndHz / kFitEdgeHz);
+        return edgeVal * t;
+    }
+    return e.gain + shapeDb(e, f);
 }
 
 // ── REW text export parsing ──────────────────────────────────────
@@ -82,6 +96,7 @@ struct FitResult {
     bool     ok  = false;
     CabinEnv env;
     double   rms = 0.0;   ///< residual over the fit band [dB]
+    double   off = 0.0;   ///< fitted level of the shape's 0 dB plateau
 };
 
 /// Resample onto a log grid (10–400 Hz) with ~1/6-octave gaussian
@@ -128,7 +143,7 @@ inline FitResult fitCabin(const QVector<double> &freq, const QVector<double> &tr
     FitResult out;
     QVector<double> f, t;
     for (int i = 0; i < freq.size(); ++i)
-        if (freq[i] >= 10.0 && freq[i] <= kAnchorHz) { f.append(freq[i]); t.append(transferDb[i]); }
+        if (freq[i] >= 10.0 && freq[i] <= kFitEdgeHz) { f.append(freq[i]); t.append(transferDb[i]); }
     if (f.size() < 12) return out;
 
     auto rmsFor = [&](double f0, double Q, double *offOut = nullptr) {
@@ -158,8 +173,9 @@ inline FitResult fitCabin(const QVector<double> &freq, const QVector<double> &tr
         }
 
     out.ok  = true;
-    out.env = {bestF0, bestQ};
-    out.rms = bestRms;
+    out.env = {bestF0, bestQ, 6.0};   // gain is set by fitFromSweepPair,
+    out.rms = bestRms;                // which knows the midband baseline
+    rmsFor(bestF0, bestQ, &out.off);
     return out;
 }
 
@@ -177,7 +193,17 @@ inline FitResult fitFromSweepPair(const QString &nearfieldText, const QString &s
     logResample(fS, sS, gF, gS);
     QVector<double> transfer(gF.size());
     for (int i = 0; i < gF.size(); ++i) transfer[i] = gS[i] - gN[i];
-    return fitCabin(gF, transfer);
+    FitResult r = fitCabin(gF, transfer);
+    if (!r.ok) return r;
+    // Gain calibration: the fitted plateau level relative to the 150–400 Hz
+    // midband modal average — the frequency range where the cabin adds
+    // nothing on average, whatever positional nulls exist along the way.
+    double baseSum = 0.0; int baseN = 0;
+    for (int i = 0; i < gF.size(); ++i)
+        if (gF[i] >= 150.0 && gF[i] <= 400.0) { baseSum += transfer[i]; ++baseN; }
+    if (baseN > 0)
+        r.env.gain = r.off - baseSum / baseN;
+    return r;
 }
 
 } // namespace cabingain

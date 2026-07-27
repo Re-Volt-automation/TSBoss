@@ -2258,7 +2258,8 @@ static QList<NamedCabinEnv> loadCabinEnvs()
     for (const auto &v : arr) {
         const auto o = v.toObject();
         NamedCabinEnv e{o["name"].toString(),
-                        {o["f0"].toDouble(30.0), o["Q"].toDouble(3.0)}};
+                        {o["f0"].toDouble(30.0), o["Q"].toDouble(3.0),
+                         o["gain"].toDouble(6.0)}};
         if (!e.name.isEmpty()) out.append(e);
     }
     return out;
@@ -2270,6 +2271,7 @@ static void saveCabinEnvs(const QList<NamedCabinEnv> &envs)
     for (const auto &e : envs) {
         QJsonObject o;
         o["name"] = e.name; o["f0"] = e.env.f0; o["Q"] = e.env.Q;
+        o["gain"] = e.env.gain;
         arr.append(o);
     }
     QSettings().setValue("cabin/envs",
@@ -2324,10 +2326,12 @@ void EnclosureWidget::showCabinManager()
     auto refill = [&] {
         list->clear();
         for (const auto &e : envs)
-            list->addItem(QString("%1  —  f0 %2 Hz · Q %3")
+            list->addItem(QString("%1  —  f0 %2 Hz · Q %3 · gain %4%5 dB")
                           .arg(e.name)
                           .arg(e.env.f0, 0, 'f', 1)
-                          .arg(e.env.Q, 0, 'f', 2));
+                          .arg(e.env.Q, 0, 'f', 2)
+                          .arg(e.env.gain >= 0 ? "+" : "")
+                          .arg(e.env.gain, 0, 'f', 1));
     };
     refill();
     vb->addWidget(list);
@@ -2339,9 +2343,15 @@ void EnclosureWidget::showCabinManager()
     f0->setValue(30.0); f0->setSuffix(" Hz");
     auto *q    = new FlexibleDoubleSpinBox;
     q->setRange(0.2, 10.0); q->setDecimals(2); q->setValue(3.0);
+    auto *gain = new FlexibleDoubleSpinBox;
+    gain->setRange(-10.0, 30.0); gain->setDecimals(1);
+    gain->setValue(6.0); gain->setSuffix(" dB");
+    gain->setToolTip("Pressure-zone floor relative to the 150–400 Hz midband\n"
+                     "average — measured automatically by Import && fit.");
     form->addRow("Name:", name);
     form->addRow("Resonance f0:", f0);
     form->addRow("Damping Q:", q);
+    form->addRow("Gain (vs midband):", gain);
     vb->addLayout(form);
 
     auto *status = new QLabel;
@@ -2357,6 +2367,7 @@ void EnclosureWidget::showCabinManager()
         name->setText(envs[row].name);
         f0->setValue(envs[row].env.f0);
         q->setValue(envs[row].env.Q);
+        gain->setValue(envs[row].env.gain);
     });
 
     auto *hb = new QHBoxLayout;
@@ -2390,12 +2401,15 @@ void EnclosureWidget::showCabinManager()
         }
         f0->setValue(r.env.f0);
         q->setValue(r.env.Q);
+        gain->setValue(r.env.gain);
         if (name->text().trimmed().isEmpty())
             name->setText(QFileInfo(seatPath).baseName());
-        status->setText(QString("Fitted f0 = %1 Hz, Q = %2 — RMS %3 dB over "
-                                "10–80 Hz. Name it and press Add / update.")
+        status->setText(QString("Fitted f0 = %1 Hz, Q = %2, gain %3 dB vs "
+                                "midband — RMS %4 dB over 10–80 Hz. Name it "
+                                "and press Add / update.")
                         .arg(r.env.f0, 0, 'f', 1)
                         .arg(r.env.Q, 0, 'f', 2)
+                        .arg(r.env.gain, 0, 'f', 1)
                         .arg(r.rms, 0, 'f', 2));
     });
 
@@ -2404,8 +2418,8 @@ void EnclosureWidget::showCabinManager()
         if (n.isEmpty()) { status->setText("Give the environment a name first."); return; }
         bool updated = false;
         for (auto &e : envs)
-            if (e.name == n) { e.env = {f0->value(), q->value()}; updated = true; }
-        if (!updated) envs.append({n, {f0->value(), q->value()}});
+            if (e.name == n) { e.env = {f0->value(), q->value(), gain->value()}; updated = true; }
+        if (!updated) envs.append({n, {f0->value(), q->value(), gain->value()}});
         saveCabinEnvs(envs);
         refill();
         status->setText(QString("%1 %2.").arg(updated ? "Updated" : "Added", n));

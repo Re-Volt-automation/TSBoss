@@ -300,7 +300,7 @@ void ResponsePlot::paintEvent(QPaintEvent *)
 
     // In-cabin validity edge — the model is a fit below 80 Hz only.
     if (m_cabin) {
-        const double xe = xPx(cabingain::kAnchorHz);
+        const double xe = xPx(cabingain::kFitEdgeHz);
         p.setPen(QPen(CLR_GREY_LT(), 1.0, Qt::DotLine));
         p.drawLine(QPointF(xe, area.top()), QPointF(xe, area.bottom()));
         drawMarkerLabel(p, area, xe, area.bottom() - 22, CLR_GREY(),
@@ -329,9 +329,11 @@ void ResponsePlot::paintEvent(QPaintEvent *)
         }
         if (m_cabin && !leg.isEmpty())
             leg.append({CLR_GREY(),
-                        QString("in-cabin  f0=%1 Hz  Q=%2")
+                        QString("in-cabin  f0=%1 Hz  Q=%2  %3%4 dB")
                             .arg(m_cabin->f0, 0, 'f', 0)
-                            .arg(m_cabin->Q, 0, 'f', 1),
+                            .arg(m_cabin->Q, 0, 'f', 1)
+                            .arg(m_cabin->gain >= 0 ? "+" : "")
+                            .arg(m_cabin->gain, 0, 'f', 0),
                         Qt::DotLine, true, true});
         drawLegend(p, area, leg);
     }

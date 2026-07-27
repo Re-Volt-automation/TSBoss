@@ -12,18 +12,23 @@ int main()
 {
     using namespace cabingain;
 
-    // ── Correction shape: anchored 0 dB at/above the validity edge ──
+    // ── Correction: measured gain + shape, tapered out by 160 Hz ────
     {
-        CabinEnv env{23.2, 4.6};
-        check(std::fabs(correctionDb(env, kAnchorHz)) < 1e-9,
-              "correction is 0 dB at the 80 Hz anchor");
+        CabinEnv env{23.2, 4.6, 11.5};   // the measured closed-car state
+        check(std::fabs(correctionDb(env, 20.0) - 21.4) < 0.3,
+              "closed car: ~+21 dB at 20 Hz vs midband (measured)");
+        check(std::fabs(correctionDb(env, 12.0)
+                        - (env.gain + shapeDb(env, 12.0))) < 1e-9,
+              "below the fit edge: correction = gain + shape");
         check(correctionDb(env, 200.0) == 0.0,
-              "correction is 0 above the validity band");
-        const double g20 = correctionDb(env, 20.0);
-        check(g20 > 29.0 && g20 < 32.0,
-              "closed-car env gives ~+30 dB at 20 Hz (measured ladder)");
-        check(correctionDb(env, 10.0) > 15.0,
-              "strong boost persists at 10 Hz");
+              "correction is 0 above the taper");
+        const double cEdge = env.gain + shapeDb(env, kFitEdgeHz);
+        check(std::fabs(correctionDb(env, kFitEdgeHz) - cEdge) < 1e-9,
+              "continuous at the fit edge");
+        const double mid = std::sqrt(kFitEdgeHz * kTaperEndHz);
+        check(std::fabs(correctionDb(env, mid) - 0.5 * cEdge)
+              < 0.15 * std::fabs(cEdge) + 1e-9,
+              "taper decays smoothly through 80-160 Hz");
     }
 
     // ── Fit recovers known parameters from a synthetic transfer ─────
@@ -61,21 +66,33 @@ int main()
     }
 
     // ── End-to-end: two synthetic sweeps -> transfer -> fit ─────────
+    // Realistic cabin: gain+shape below the fit edge, flat modal midband
+    // above 150 Hz, log-blended between; arbitrary -22 dB geometric level.
     {
-        CabinEnv truth{31.0, 4.0};
+        CabinEnv truth{31.0, 4.0, 9.0};
+        auto cabinAdd = [&](double fr) {
+            const double below = truth.gain + shapeDb(truth, fr);
+            if (fr <= 80.0)  return below;
+            if (fr >= 150.0) return 0.0;
+            const double edge = truth.gain + shapeDb(truth, 80.0);
+            const double t = std::log(150.0 / fr) / std::log(150.0 / 80.0);
+            return edge * t;
+        };
         QString nf, seat;
         for (double lf = std::log10(10.0); lf <= std::log10(400.0); lf += 0.005) {
             const double fr = std::pow(10.0, lf);
             const double base = 95.0 - 3.0 * std::pow(std::log10(fr / 10.0), 2.0);
             nf   += QString("%1 %2 0\n").arg(fr, 0, 'f', 4).arg(base, 0, 'f', 3);
             seat += QString("%1 %2 0\n").arg(fr, 0, 'f', 4)
-                        .arg(base - 22.0 + shapeDb(truth, fr), 0, 'f', 3);
+                        .arg(base - 22.0 + cabinAdd(fr), 0, 'f', 3);
         }
         const FitResult r = fitFromSweepPair(nf, seat);
         check(r.ok, "sweep-pair pipeline succeeds");
         check(std::fabs(r.env.f0 - truth.f0) < 1.0,
               "pipeline recovers f0 (level/chain cancels)");
         check(std::fabs(r.env.Q - truth.Q) < 0.4, "pipeline recovers Q");
+        check(std::fabs(r.env.gain - truth.gain) < 0.8,
+              "pipeline recovers the gain vs the midband baseline");
     }
 
     if (g_failures) std::printf("\n%d FAILURE(S)\n", g_failures);
