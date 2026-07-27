@@ -298,14 +298,6 @@ void ResponsePlot::paintEvent(QPaintEvent *)
         drawCurve(m_models[m_activeIdx], true);
     p.setClipping(false);
 
-    // In-cabin validity edge — the model is a fit below 80 Hz only.
-    if (m_cabin) {
-        const double xe = xPx(cabingain::kFitEdgeHz);
-        p.setPen(QPen(CLR_GREY_LT(), 1.0, Qt::DotLine));
-        p.drawLine(QPointF(xe, area.top()), QPointF(xe, area.bottom()));
-        drawMarkerLabel(p, area, xe, area.bottom() - 22, CLR_GREY(),
-                        QStringLiteral("cabin fit ≤ 80 Hz"));
-    }
 
     // Legend (top-right of plot area)
     {

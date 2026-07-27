@@ -12,23 +12,27 @@ int main()
 {
     using namespace cabingain;
 
-    // ── Correction: measured gain + shape, tapered out by 160 Hz ────
+    // ── Correction: (gain + shape) with a smooth structural fade ────
+    // No fit-edge cutoff, no taper segment: one formula, smooth
+    // everywhere, decaying to 0 well above the pressure zone.
     {
         CabinEnv env{23.2, 4.6, 11.5};   // the measured closed-car state
         check(std::fabs(correctionDb(env, 20.0) - 21.4) < 0.3,
               "closed car: ~+21 dB at 20 Hz vs midband (measured)");
         check(std::fabs(correctionDb(env, 12.0)
-                        - (env.gain + shapeDb(env, 12.0))) < 1e-9,
-              "below the fit edge: correction = gain + shape");
-        check(correctionDb(env, 200.0) == 0.0,
-              "correction is 0 above the taper");
-        const double cEdge = env.gain + shapeDb(env, kFitEdgeHz);
-        check(std::fabs(correctionDb(env, kFitEdgeHz) - cEdge) < 1e-9,
-              "continuous at the fit edge");
-        const double mid = std::sqrt(kFitEdgeHz * kTaperEndHz);
-        check(std::fabs(correctionDb(env, mid) - 0.5 * cEdge)
-              < 0.15 * std::fabs(cEdge) + 1e-9,
-              "taper decays smoothly through 80-160 Hz");
+                        - (env.gain + shapeDb(env, 12.0))) < 0.05,
+              "deep in the pressure zone the fade is negligible");
+        check(std::fabs(correctionDb(env, 80.0) - (-6.57)) < 0.15,
+              "at 80 Hz: faded (gain + shape), no hard anchor");
+        const double d1 = correctionDb(env, 80.0) - correctionDb(env, 78.0);
+        const double d2 = correctionDb(env, 82.0) - correctionDb(env, 80.0);
+        check(std::fabs(d1 - d2) < 0.08,
+              "no kink where the old fit edge used to be");
+        const double c200 = correctionDb(env, 200.0);
+        check(c200 < -0.5 && c200 > -3.0,
+              "gentle residual dip at 200 Hz, fading out");
+        check(std::fabs(correctionDb(env, 1000.0)) < 0.05,
+              "vanishes by 1 kHz");
     }
 
     // ── Fit recovers known parameters from a synthetic transfer ─────

@@ -19,14 +19,23 @@ the 2-parameter fit held every state to 1.1–1.9 dB RMS over 10–80 Hz.
 
 The environment carries a third measured parameter: **gain**, the fitted
 pressure-zone plateau level relative to the 150–400 Hz midband modal
-average of the same transfer. The applied correction below 80 Hz is
-`gain + shape(f)`; between 80 and 160 Hz it log-tapers from the 80 Hz
-value to zero (no hard anchor point — a single anchor frequency can sit
-in a positional dip, and the measured car's 80 Hz does: ~11 dB below
-midband at the seat, closed). Above 160 Hz the correction is zero — the
-modal region is position-dependent and no low-order model should pretend
-to capture it. A dotted "cabin fit ≤ 80 Hz" marker draws the honesty
-boundary on the plot.
+average of the same transfer. The applied correction is one smooth
+formula at every frequency:
+
+    correction(f) = (gain + shape(f)) / (1 + (f/100)^4)
+
+No fit-edge cutoff, no taper segment (both earlier constructions kinked
+the curve and, with a wrong gain, carved artificial notches). The fade
+is negligible through the pressure zone, lets the shape's natural
+above-resonance dip stand in for the broad 70–200 Hz valley every
+measured state shows at the listening seat (~−11 dB closed), and retires
+the correction where the field turns modal. Against the five-state
+ladder this beats the log-taper everywhere: RMS 3.0–4.6 dB over
+10–200 Hz (taper: 3.7–5.4), 1.4–2.5 dB over 15–100 Hz, and it matches
+the measured 10 Hz transfer within 0.3 dB. A pure 3-parameter resonant
+low-shelf was also tried and rejected: its dip depth is coupled to its
+gain, which drove fits to distorted parameters (closed-car gain 22.5 dB
+vs the measured 11.5) and 6–8 dB RMS once pinned to the true zero.
 
 Measured gains on the ladder: closed +11.5 dB, window cracked +6.2,
 window open +3.5, 1 door +4.7, 2 doors +5.0 (closed car at 20 Hz:
