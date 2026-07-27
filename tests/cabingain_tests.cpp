@@ -12,27 +12,28 @@ int main()
 {
     using namespace cabingain;
 
-    // ── Correction: (gain + shape) with a smooth structural fade ────
-    // No fit-edge cutoff, no taper segment: one formula, smooth
-    // everywhere, decaying to 0 well above the pressure zone.
+    // ── Correction: additive-only pressure-zone boost ───────────────
+    // The cabin adds at LF and does nothing above — it never subtracts
+    // (nearfield ladder 2026-07-28: cabin effects confined below
+    // ~45 Hz; the seat's 70–200 Hz valley is positional, out of scope).
     {
         CabinEnv env{23.2, 4.6, 11.5};   // the measured closed-car state
         check(std::fabs(correctionDb(env, 20.0) - 21.4) < 0.3,
               "closed car: ~+21 dB at 20 Hz vs midband (measured)");
         check(std::fabs(correctionDb(env, 12.0)
-                        - (env.gain + shapeDb(env, 12.0))) < 0.05,
-              "deep in the pressure zone the fade is negligible");
-        check(std::fabs(correctionDb(env, 80.0) - (-6.57)) < 0.15,
-              "at 80 Hz: faded (gain + shape), no hard anchor");
-        const double d1 = correctionDb(env, 80.0) - correctionDb(env, 78.0);
-        const double d2 = correctionDb(env, 82.0) - correctionDb(env, 80.0);
-        check(std::fabs(d1 - d2) < 0.08,
-              "no kink where the old fit edge used to be");
-        const double c200 = correctionDb(env, 200.0);
-        check(c200 < -0.5 && c200 > -3.0,
-              "gentle residual dip at 200 Hz, fading out");
-        check(std::fabs(correctionDb(env, 1000.0)) < 0.05,
-              "vanishes by 1 kHz");
+                        - (env.gain + shapeDb(env, 12.0))) < 0.1,
+              "deep in the pressure zone: correction = gain + shape");
+        bool nonneg = true;
+        for (double lf = std::log10(10.0); lf <= 3.0; lf += 0.01)
+            if (correctionDb(env, std::pow(10.0, lf)) < 0.0) nonneg = false;
+        check(nonneg, "the cabin never subtracts, at any frequency");
+        const double c80 = correctionDb(env, 80.0);
+        check(c80 > 0.0 && c80 < 0.5,
+              "essentially no correction left at 80 Hz");
+        check(std::fabs(correctionDb(env, 200.0)) < 0.1, "gone by 200 Hz");
+        const double s2 = correctionDb(env, 49.0) + correctionDb(env, 51.0)
+                        - 2.0 * correctionDb(env, 50.0);
+        check(std::fabs(s2) < 0.15, "smooth through the clamp region");
     }
 
     // ── Fit recovers known parameters from a synthetic transfer ─────

@@ -16,13 +16,12 @@
 //
 //  The correction applied to a predicted anechoic SPL curve is the
 //  measured gain (fitted plateau vs the 150–400 Hz midband average)
-//  plus the resonance shape, scaled by a smooth structural fade
-//  1/(1+(f/100)^4) — one formula, no edge, no taper segment. The fade
-//  is negligible in the pressure zone, lets the shape's natural
-//  above-resonance dip stand in for the measured 70–200 Hz valley,
-//  and dies out where the field turns modal and position-dependent.
-//  (Validated against the five-state ladder: RMS 1.4–2.5 dB over
-//  15–100 Hz, 3.0–4.6 dB over the full 10–200 Hz.)
+//  plus the resonance shape, smoothly clamped at zero — the cabin
+//  ADDS pressure-zone output and does nothing above; it never
+//  subtracts. (No-crossover nearfield ladder 2026-07-28: cabin
+//  effects are confined below ~45 Hz; the broad valley the seat
+//  transfer shows at 70–200 Hz is positional interference at one
+//  listening spot, deliberately out of scope for a reusable model.)
 //
 //  Header-only and unit-tested (tests/cabingain_tests.cpp).
 // ─────────────────────────────────────────────────────────────────
@@ -31,9 +30,9 @@ namespace cabingain {
 
 /// Upper edge of the fit band [Hz] — f0/Q/gain are fitted below here.
 inline constexpr double kFitEdgeHz = 80.0;
-/// Half-way frequency of the structural fade 1/(1+(f/kFadeHz)^4) that
-/// retires the correction outside the pressure zone.
-inline constexpr double kFadeHz    = 100.0;
+/// Smoothing width [dB] of the zero clamp — the correction rounds off
+/// into 0 instead of cornering where the boost runs out.
+inline constexpr double kSoftDb    = 2.0;
 
 struct CabinEnv {
     double f0   = 30.0;  ///< cabin/leak Helmholtz resonance [Hz]
@@ -52,13 +51,13 @@ inline double shapeDb(const CabinEnv &e, double f)
 
 /// Correction added to an anechoic SPL curve: the measured gain plus
 /// the resonance shape (both calibrated against the 150–400 Hz midband
-/// modal average during fitting), scaled by a smooth fade that is ~1
-/// through the pressure zone and retires the correction above it.
+/// modal average during fitting), smoothly clamped at zero — additive
+/// only. smooth-max(0, s) = (s + sqrt(s² + w²))/2.
 inline double correctionDb(const CabinEnv &e, double f)
 {
     if (f <= 0.0) return 0.0;
-    const double r = f / kFadeHz;
-    return (e.gain + shapeDb(e, f)) / (1.0 + r * r * r * r);
+    const double s = e.gain + shapeDb(e, f);
+    return 0.5 * (s + std::sqrt(s * s + kSoftDb * kSoftDb));
 }
 
 // ── REW text export parsing ──────────────────────────────────────
