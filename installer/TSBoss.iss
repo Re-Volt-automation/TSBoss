@@ -2,7 +2,7 @@
 ; Builds an installer that bundles the windeployqt'd runtime.
 
 #define MyAppName       "TSBoss"
-#define MyAppVersion    "1.2.1"
+#define MyAppVersion    "1.3.0"
 #define MyAppPublisher  "TSBoss"
 #define MyAppExeName    "TSBoss.exe"
 
