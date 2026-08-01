@@ -193,6 +193,16 @@ void DatasheetEntryWidget::buildUi()
     sub->setStyleSheet(themed("color:%muted%; margin-bottom:4px;"));
     vbox->addWidget(sub);
 
+    // Value-origin legend — matches the colours applyFieldColors() puts on the
+    // spinboxes (moved here from the driver-database toolbar).
+    auto *legend = new QLabel(
+        "<span style='color:#1a7db5;'>●</span> calculated / accepted suggestion"
+        "&nbsp;&nbsp;&nbsp;<span style='color:#2e7d32;'>●</span> user-entered");
+    legend->setToolTip("Coloured values: blue = applied from a suggest button, "
+                       "green = typed in by hand.");
+    legend->setStyleSheet(themed("color:%muted%; font-size:8pt; margin-bottom:2px;"));
+    vbox->addWidget(legend);
+
     // ── Driver Identification ─────────────────────────────────────
     {
         auto *box  = new QGroupBox("Driver Identification");
@@ -1333,6 +1343,14 @@ DriverRecord DatasheetEntryWidget::collectRecord() const
     r.fo          = m_loadedRaw.fo;
     r.Zmin        = m_loadedRaw.Zmin;
     r.f3          = m_loadedRaw.f3;
+
+    // Derived verification values — recompute from whatever Re/Zmax/f1/f2 are
+    // actually being saved. Passing them through instead would let them go
+    // stale after edits, and omitting them (the old behaviour) lost them
+    // entirely, leaving Z₁₂ / √f₁f₂ / R₀ blank in the driver detail view.
+    r.Z12      = (r.Re > 0.0 && r.Zmax > 0.0) ? std::sqrt(r.Re * r.Zmax) : 0.0;
+    r.R0       = (r.Re > 0.0 && r.Zmax > 0.0) ? (r.Zmax / r.Re)          : 0.0;
+    r.fsVerify = (r.f1 > 0.0 && r.f2 > 0.0)   ? std::sqrt(r.f1 * r.f2)   : 0.0;
 
     return r;
 }

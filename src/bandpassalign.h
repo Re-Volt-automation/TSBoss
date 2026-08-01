@@ -115,7 +115,11 @@ struct BP4FlatResult { double Vr_L, Vf_L, fbFront; bool ok; };
 inline BP4FlatResult bp4MaxFlat(const BoxModel &tmpl)
 {
     BP4FlatResult r{0.0, 0.0, 0.0, false};
-    const double Qts = tmpl.Qts, Vas = tmpl.Vas_L, fs = tmpl.fs;
+    // N drivers share the chamber, so the compliance-equivalent volume is N·Vas
+    // (matches the sealed/vented closed forms; the circuit refine scales via
+    // driverScaling internally).
+    const double Qts = tmpl.Qts, fs = tmpl.fs;
+    const double Vas = tmpl.Vas_L * std::max(1, tmpl.numDrivers);
     constexpr double Qbc = 0.70710678;            // Butterworth rear loading
     if (!(fs > 0.0) || !(Vas > 0.0) || !(Qts > 0.0) || Qts >= Qbc) return r;
 
@@ -160,7 +164,8 @@ struct BP6FlatResult { double Vr_L, fbRear, Vf_L, fbFront; bool ok; };
 inline BP6FlatResult bp6MaxFlat(const BoxModel &tmpl)
 {
     BP6FlatResult r{0.0, 0.0, 0.0, 0.0, false};
-    const double Qts = tmpl.Qts, Vas = tmpl.Vas_L, fs = tmpl.fs;
+    const double Qts = tmpl.Qts, fs = tmpl.fs;
+    const double Vas = tmpl.Vas_L * std::max(1, tmpl.numDrivers);
     constexpr double Qbc = 0.70710678;
     if (!(fs > 0.0) || !(Vas > 0.0) || !(Qts > 0.0) || Qts >= Qbc) return r;
 

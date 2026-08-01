@@ -34,7 +34,12 @@
 #include <QShortcut>
 #include <QIcon>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPixmap>
+#include <QLineEdit>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QFileInfo>
 #include <QTabWidget>
 #include <QTextBrowser>
 #include <cmath>
@@ -88,6 +93,18 @@ static QPixmap navPixmap(const QString &kind, const QColor &c)
             p.drawLine(QPointF(9.0 + 4.4*std::cos(a), 9.0 + 4.4*std::sin(a)),
                        QPointF(9.0 + 6.2*std::cos(a), 9.0 + 6.2*std::sin(a)));
         }
+    } else if (kind == "book") {               // educate: open book
+        p.drawLine(QPointF(9.0, 4.8), QPointF(9.0, 13.4));            // spine
+        QPainterPath pg;
+        pg.moveTo(9.0, 4.8);
+        pg.cubicTo(7.2, 3.5, 4.8, 3.5, 3.2, 4.5);                     // left cover, top
+        pg.lineTo(3.2, 12.4);
+        pg.cubicTo(4.8, 11.5, 7.2, 11.5, 9.0, 13.4);                  // left cover, bottom
+        pg.moveTo(9.0, 4.8);
+        pg.cubicTo(10.8, 3.5, 13.2, 3.5, 14.8, 4.5);                  // right cover, top
+        pg.lineTo(14.8, 12.4);
+        pg.cubicTo(13.2, 11.5, 10.8, 11.5, 9.0, 13.4);                // right cover, bottom
+        p.drawPath(pg);
     } else if (kind == "info") {               // about
         p.drawEllipse(QPointF(9.0, 9.0), 6.3, 6.3);
         p.setBrush(c);
@@ -191,6 +208,12 @@ void MainWindow::buildCentralWidget()
     connect(m_detailWidget, &DriverDetailWidget::editRequested,   this, &MainWindow::onEditRequested);
     connect(m_detailWidget, &DriverDetailWidget::deleteRequested, this, &MainWindow::onDeleteRequested);
     connect(m_detailWidget, &DriverDetailWidget::useRequested,    this, &MainWindow::onUseDriverRequested);
+    connect(m_detailWidget, &DriverDetailWidget::reopenQuickRequested, this, [this](int id) {
+        const auto r = m_db->loadDriver(id);
+        if (!r.isValid()) return;
+        m_quickEntry->loadRecord(r);          // keeps the id → save updates
+        m_stack->setCurrentWidget(m_quickEntry);
+    });
 
     // 3 – quick measurement (input only, routes to datasheet entry on Calculate)
     m_quickEntry = new QuickEntryWidget(m_db);
@@ -296,9 +319,11 @@ void MainWindow::buildSidebar()
     vb->addWidget(sep2);
 
     auto *btnAdvanced = makeNavBtn("gear", "Advanced Settings");
-    auto *btnAbout    = makeNavBtn("info", "About / Method");
+    auto *btnEducate  = makeNavBtn("book", "Educate");
+    auto *btnAbout    = makeNavBtn("info", "About");
     btnAdvanced->setToolTip("Advanced Settings  (Ctrl+,)");
-    btnAbout->setToolTip("About / Method  (F1)");
+    btnEducate->setToolTip("Open the interactive Thiele/Small report in your browser");
+    btnAbout->setToolTip("About  (F1)");
 
     vb->addStretch();
 
@@ -310,6 +335,23 @@ void MainWindow::buildSidebar()
     connect(btnEnclosure, &QPushButton::clicked, this, &MainWindow::showEnclosureModel);
     connect(btnDb,        &QPushButton::clicked, this, &MainWindow::showDatabase);
     connect(btnAdvanced,  &QPushButton::clicked, this, &MainWindow::showAdvancedSettings);
+    connect(btnEducate,   &QPushButton::clicked, this, [this]() {
+        // The interactive report ships in Resources/ next to the exe (deploy /
+        // installer); in a dev build the folder sits one level up from build-win.
+        const QString rel = QStringLiteral("Resources/Thiele-Small Report (interactive).html");
+        const QString appDir = QCoreApplication::applicationDirPath();
+        QString found;
+        for (const QString &cand : { appDir + "/" + rel, appDir + "/../" + rel }) {
+            if (QFileInfo::exists(cand)) { found = cand; break; }
+        }
+        if (found.isEmpty()) {
+            QMessageBox::warning(this, "Educate",
+                "Could not find the interactive Thiele/Small report.\n"
+                "Expected at:  <application folder>/" + rel);
+            return;
+        }
+        QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(found).absoluteFilePath()));
+    });
     connect(btnAbout,     &QPushButton::clicked, this, &MainWindow::showAbout);
     // Re-assert the checked state — a click on the already-current button
     // would otherwise just toggle it off (the stack index doesn't change).
@@ -557,8 +599,9 @@ void MainWindow::launchWizard()
 
 void MainWindow::onRecordReady(DriverRecord record)
 {
-    // Mark as new (unsaved)
-    record.id = -1;
+    // A fresh wizard/quick run arrives with id = -1 (new, unsaved). A record
+    // reopened from the database keeps its id, so saving UPDATES that driver
+    // instead of silently creating a duplicate.
     m_datasheetEntry->loadRecord(record);
     m_stack->setCurrentIndex(4);
 }
@@ -792,6 +835,33 @@ void MainWindow::showAdvancedSettings()
 
     vb->addWidget(grpPlot);
 
+    // ── Measurement defaults (pre-filled into every Guided Wizard run) ──
+    auto *grpMeas = new QGroupBox("Measurement Defaults");
+    auto *measForm = new QFormLayout(grpMeas);
+    measForm->setSpacing(8);
+
+    auto *spDefRs = mkSpin(1.0, 1000.0, 1.0,
+                           settings.value("wizard/defaultRs", 50.0).toDouble(), 1, " Ω");
+    auto *spDefV  = mkSpin(0.01, 50.0, 0.1,
+                           settings.value("wizard/defaultVmeas", 1.0).toDouble(), 3, " V");
+    auto *edUser  = new QLineEdit(settings.value("wizard/userName").toString());
+    edUser->setPlaceholderText("pre-fills \"Measured by\"");
+    auto *edNotes = new QLineEdit(settings.value("wizard/defaultNotes").toString());
+    edNotes->setPlaceholderText("e.g. gear used, room conditions…");
+
+    measForm->addRow("Series resistor Rₛ:", spDefRs);
+    measForm->addRow("Applied voltage V:",  spDefV);
+    measForm->addRow("Your name:",          edUser);
+    measForm->addRow("Default notes:",      edNotes);
+
+    auto *measNote = new QLabel(
+        "Used as the starting values for the Guided Wizard and Quick Measurement.");
+    measNote->setObjectName("FormCaption");
+    measNote->setWordWrap(true);
+    measForm->addRow("", measNote);
+
+    vb->addWidget(grpMeas);
+
     // ── Buttons ───────────────────────────────────────────────────
     auto *btnReset = new QPushButton("Reset to defaults");
     connect(btnReset, &QPushButton::clicked, this, [=]{
@@ -800,6 +870,10 @@ void MainWindow::showAdvancedSettings()
         spPres->setValue(1013.25);
         for (auto *row : {&rowSpl, &rowGd, &rowVolt, &rowExc})
             row->chk->setChecked(false);
+        spDefRs->setValue(50.0);
+        spDefV->setValue(1.0);
+        edUser->clear();
+        edNotes->clear();
     });
 
     auto *bbox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
@@ -846,6 +920,11 @@ void MainWindow::showAdvancedSettings()
         applyRow(rowVolt, "plot/voltMin", "plot/voltMax", r.voltMin, r.voltMax);
         applyRow(rowExc,  "plot/excMin",  "plot/excMax",  r.excMin,  r.excMax);
         m_enclosure->setPlotRanges(r);
+
+        settings.setValue("wizard/defaultRs",    spDefRs->value());
+        settings.setValue("wizard/defaultVmeas", spDefV->value());
+        settings.setValue("wizard/userName",     edUser->text());
+        settings.setValue("wizard/defaultNotes", edNotes->text());
     } else {
         // Cancel — undo any live theme preview.
         if (Theme::instance().mode() != initialThemeMode)
@@ -880,9 +959,8 @@ void MainWindow::showAbout()
         "(small- and large-signal), and store drivers in a local SQLite database "
         "with CSV import/export and side-by-side compare views.</li>"
         "<li><b>Measurement entry</b> &mdash; full datasheet form, a minimal "
-        "quick-entry form, and a step-by-step wizard that walks through "
-        "impedance sweep, &minus;3&nbsp;dB bandwidth extraction, and the "
-        "delta-mass procedure.</li>"
+        "quick-entry form, and a step-by-step wizard that walks through the "
+        "guided impedance measurements and the delta-mass procedure.</li>"
         "<li><b>Enclosure modeller</b> &mdash; compare sealed, vented, "
         "infinite-baffle and bandpass designs simultaneously, with SPL, group "
         "delay, power, excursion, port-velocity, impedance and max-SPL plots, "
@@ -898,13 +976,7 @@ void MainWindow::showAbout()
         "Found a bug, or have a feature request? Email "
         "<a href=\"mailto:wessellemmer@gmail.com\">wessellemmer@gmail.com</a>.</p>");
 
-    mkTab("Method",
-        "<p><b>Measurement method:</b><br>"
-        "Delta-mass / constant-voltage impedance technique. Resonance and quality "
-        "factors are extracted from the &minus;3&nbsp;dB bandwidth around f<sub>s</sub>; "
-        "m<sub>ms</sub> is recovered from the resonance shift after adding a known "
-        "mass to the cone; BL, C<sub>ms</sub>, V<sub>as</sub>, S<sub>d</sub> and "
-        "L<sub>e</sub> then follow analytically.</p>"
+    mkTab("Formulas",
         "<p><b>Formulae implemented:</b><br>"
         "Z₁₂ = √(Rₑ·Zmax)<br>"
         "R₀ = Zmax/Rₑ<br>"
@@ -917,14 +989,11 @@ void MainWindow::showAbout()
         "Cms = 1/((2π·fₛ)²·mms)<br>"
         "Sᵈ  = π·(Dᵈ/2)²<br>"
         "Vas = Cms·ρ·c²·Sᵈ²  (ρ=1.2 kg/m³, c=344 m/s)<br>"
-        "Lₑ  = [(Rₑ·20000/(2π·f₃))+0.5]·10⁻³/20</p>"
-        "<p><b>Vented-box acoustics:</b><br>"
-        "Cone and port volume velocities are taken from the coupled "
-        "mechanical/acoustical admittance circuit and summed coherently. "
-        "f₃ is located by binary search on the resulting SPL curve; group "
-        "delay is the numerical phase derivative of the total acoustic output.</p>"
-        "<p><b>Database:</b> SQLite, stored in the application data directory; "
-        "schema is migrated forward via additive ALTER&nbsp;TABLE steps.</p>");
+        "Lₑ  = [(Rₑ·20000/(2π·f₃))+0.5]·10⁻³/20<br>"
+        "η₀  = 4π²·fₛ³·Vas/(c³·Qes),  SPL = 112.02 + 10·log₁₀(η₀)  (1 W / 1 m)<br>"
+        "SPL₂.₈₃ᵥ = SPL₁ᵂ + 10·log₁₀(8/Rₑ)<br>"
+        "fLe = f₃  (frequency the Lₑ figure applies at)<br>"
+        "Znom ≈ Rₑ/0.75 → nearest standard rating  (1/2/4/6/8/16/32 Ω)</p>");
 
     mkTab("Shortcuts",
         "<p><b>Global:</b></p>"

@@ -71,7 +71,7 @@ private:
     QGroupBox      *m_resultsBox;
     QLabel         *m_resRe, *m_resFs, *m_resQms, *m_resQes, *m_resQts;
     QLabel         *m_resMms, *m_resCms, *m_resRms, *m_resBL;
-    QLabel         *m_resSd, *m_resVas, *m_resLe, *m_resVerify;
+    QLabel         *m_resSd, *m_resVas, *m_resLe, *m_resSpl, *m_resSpl283, *m_resVerify;
     QLabel         *m_statusLbl;
 
     DriverRecord    m_lastRecord;

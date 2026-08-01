@@ -55,6 +55,19 @@ static void tsRow(QGridLayout *g, int &row,
     ++row;
 }
 
+// Value-origin colours — same theme-aware palette the driver list uses for
+// its table cells, so a driver reads consistently across pages.
+static QColor calcColor()
+{
+    return Theme::instance().mode() == Theme::Mode::Dark ? QColor("#4aa3d8")
+                                                         : QColor("#1a7db5");
+}
+static QColor userColor()
+{
+    return Theme::instance().mode() == Theme::Mode::Dark ? QColor("#66bb6a")
+                                                         : QColor("#2e7d32");
+}
+
 // ─────────────────────────────────────────────────────────────────
 
 DriverDetailWidget::DriverDetailWidget(QWidget *parent) : QWidget(parent)
@@ -98,6 +111,14 @@ void DriverDetailWidget::buildUi()
         "border-radius:4px; padding:8px 12px;}"));
     m_warnBanner->setVisible(false);
     layout->addWidget(m_warnBanner);
+
+    // Value-origin legend (moved here from the driver-database toolbar);
+    // colours refresh in loadDriver() so a theme change is picked up.
+    m_legendLbl = new QLabel;
+    m_legendLbl->setToolTip("Coloured values: calculated = derived from other fields, "
+                            "user-entered = typed in by hand.");
+    m_legendLbl->setAlignment(Qt::AlignRight);
+    layout->addWidget(m_legendLbl);
 
     connect(btnUse,    &QPushButton::clicked, this, [this]{ if (m_currentId>=0) emit useRequested(m_currentId); });
     connect(btnEdit,   &QPushButton::clicked, this, [this]{ if (m_currentId>=0) emit editRequested(m_currentId); });
@@ -144,6 +165,21 @@ void DriverDetailWidget::buildUi()
         tsRow(grid, r, "Dᵈ",   "Piston diameter",                "mm",   m_lblDd);
         tsRow(grid, r, "Zmin", "Min impedance above resonance",  "Ω",    m_lblZmin);
         tsRow(grid, r, "f₃",   "Frequency at Zmin + 3 dB",       "Hz",   m_lblF3);
+
+        // Send the stored measurements back into the Quick Measurement form
+        // (same driver id — saving there updates this record, no duplicate).
+        m_btnReopenQuick = new QPushButton("Reopen as Quick Measurement");
+        m_btnReopenQuick->setToolTip(
+            "Load these raw measurements back into the Quick Measurement form "
+            "to re-check or redo values — saving updates this same driver.");
+        m_btnReopenQuick->setStyleSheet(themed(
+            "QPushButton{background:%input%;color:%text2%;border:1px solid %border2%;"
+            "border-radius:4px;padding:5px 14px;}"
+            "QPushButton:hover{background:%inputFocus%;}"));
+        connect(m_btnReopenQuick, &QPushButton::clicked, this,
+                [this]{ if (m_currentId >= 0) emit reopenQuickRequested(m_currentId); });
+        grid->addWidget(m_btnReopenQuick, r, 0, 1, 4, Qt::AlignLeft);
+        ++r;
         layout->addWidget(sec);
     }
 
@@ -271,6 +307,9 @@ void DriverDetailWidget::loadDriver(const DriverRecord &r)
     // section for datasheet-entered records instead of showing zeros.
     const bool hasSetup = r.V_meas > 0.0 || r.R_s > 0.0;
     if (auto *sec = m_lblVmeas->parentWidget()) sec->setVisible(hasSetup);
+    // Reopen-as-quick only makes sense when raw measurements actually exist
+    // (datasheet-entered records have no f1/f2 and would reopen as zeros).
+    m_btnReopenQuick->setVisible(r.f1 > 0.0 && r.f2 > 0.0);
     const QString vu = (r.voltageMode == 1) ? "Peak-to-peak" : "RMS";
     m_lblVmeas ->setText(r.V_meas > 0 ? QString("%1 V  (%2)").arg(r.V_meas,0,'f',3).arg(vu) : "–");
     m_lblRs    ->setText(r.R_s   > 0 ? QString("%1 Ω").arg(r.R_s,0,'f',1) : "–");
@@ -300,6 +339,32 @@ void DriverDetailWidget::loadDriver(const DriverRecord &r)
     num(m_lblVas,  r.Vas  * 1000.0,  3);
     num(m_lblSpl,  r.Spl,            1);
     num(m_lblLe,   r.Le   * 1000.0,  4);
+
+    // Colour the origin-tracked values (see the legend under the title):
+    // blue = accepted from a suggest button / calculated, green = typed.
+    m_legendLbl->setStyleSheet(themed("color:%muted%; font-size:8pt;"));
+    m_legendLbl->setText(QString("<span style='color:%1;'>●</span> calculated"
+                                 "&nbsp;&nbsp;<span style='color:%2;'>●</span> user-entered")
+                         .arg(calcColor().name(), userColor().name()));
+    auto paint = [&](QLabel *l, quint64 bit, double v) {
+        QString sty = QStringLiteral("font-weight:bold;font-size:10pt;");
+        if      (v > 0.0 && (r.fieldOrigins      & bit)) sty += "color:" + calcColor().name() + ";";
+        else if (v > 0.0 && (r.userEnteredFields & bit)) sty += "color:" + userColor().name() + ";";
+        else                                             sty += themed("color:%text2%;");
+        l->setStyleSheet(sty);
+    };
+    paint(m_lblRe,  FieldOrigin::Re,  r.Re);
+    paint(m_lblQms, FieldOrigin::Qms, r.Qms);
+    paint(m_lblQes, FieldOrigin::Qes, r.Qes);
+    paint(m_lblQts, FieldOrigin::Qts, r.Qts);
+    paint(m_lblMms, FieldOrigin::Mms, r.mms);
+    paint(m_lblCms, FieldOrigin::Cms, r.Cms);
+    paint(m_lblRms, FieldOrigin::Rms, r.Rms);
+    paint(m_lblBL,  FieldOrigin::BL,  r.BL);
+    paint(m_lblSd,  FieldOrigin::Sd,  r.Sd);
+    paint(m_lblDd,  FieldOrigin::Dd,  r.Dd);
+    paint(m_lblVas, FieldOrigin::Vas, r.Vas);
+    paint(m_lblSpl, FieldOrigin::Spl, r.Spl);
 
     // Additional linear parameters
     num(m_lblZnom, r.Znom, 1);

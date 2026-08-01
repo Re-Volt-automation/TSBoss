@@ -2473,15 +2473,19 @@ void EnclosureWidget::onAlignBessel()   // Qtc = 1/√3 ≈ 0.577
 {
     if (m_activeIdx < 0 || m_activeIdx >= m_models.size()) return;
     auto &m = m_models[m_activeIdx];
+    // Align against the driver the simulation actually sees: added cone mass
+    // and mounting baked in, N drivers sharing the box (same as recalculate()).
+    const BoxModel me = mounting::withMounting(withEffectiveMass(m));
+    const double VasEff = me.Vas_L * std::max(1, me.numDrivers);
     constexpr double Qtc = 0.5774;
-    if (m.Qts <= 0 || m.Qts >= Qtc) {
+    if (me.Qts <= 0 || me.Qts >= Qtc) {
         QMessageBox::information(this, "Bessel alignment",
-            QString("Requires Qts < %1 (current Qts = %2).")
-            .arg(Qtc).arg(m.Qts, 0, 'f', 3));
+            QString("Requires Qts < %1 (effective Qts = %2).")
+            .arg(Qtc).arg(me.Qts, 0, 'f', 3));
         return;
     }
-    const double alpha = (Qtc / m.Qts) * (Qtc / m.Qts) - 1.0;
-    const double Vb    = m.Vas_L / alpha;
+    const double alpha = (Qtc / me.Qts) * (Qtc / me.Qts) - 1.0;
+    const double Vb    = VasEff / alpha;
     applyVolumeToModel(this, m, m_volume, Vb);
     recalculate(m_activeIdx); updateModelList(); updatePlot();
 }
@@ -2490,15 +2494,17 @@ void EnclosureWidget::onAlignB2()       // Butterworth: Qtc = 1/√2 ≈ 0.707
 {
     if (m_activeIdx < 0 || m_activeIdx >= m_models.size()) return;
     auto &m = m_models[m_activeIdx];
+    const BoxModel me = mounting::withMounting(withEffectiveMass(m));
+    const double VasEff = me.Vas_L * std::max(1, me.numDrivers);
     constexpr double Qtc = 0.7071;
-    if (m.Qts <= 0 || m.Qts >= Qtc) {
+    if (me.Qts <= 0 || me.Qts >= Qtc) {
         QMessageBox::information(this, "Butterworth alignment",
-            QString("Requires Qts < %1 (current Qts = %2).")
-            .arg(Qtc).arg(m.Qts, 0, 'f', 3));
+            QString("Requires Qts < %1 (effective Qts = %2).")
+            .arg(Qtc).arg(me.Qts, 0, 'f', 3));
         return;
     }
-    const double alpha = (Qtc / m.Qts) * (Qtc / m.Qts) - 1.0;
-    const double Vb    = m.Vas_L / alpha;
+    const double alpha = (Qtc / me.Qts) * (Qtc / me.Qts) - 1.0;
+    const double Vb    = VasEff / alpha;
     applyVolumeToModel(this, m, m_volume, Vb);
     recalculate(m_activeIdx); updateModelList(); updatePlot();
 }
@@ -2509,16 +2515,18 @@ void EnclosureWidget::onAlignB4()
     // Uses α ≈ (0.4/Qts)^2.87, h ≈ (Qts/0.4)^0.32 (fits to Small 1973 tables, QL=7).
     if (m_activeIdx < 0 || m_activeIdx >= m_models.size()) return;
     auto &m = m_models[m_activeIdx];
-    if (m.Qts <= 0 || m.Qts > 0.6 || m.Vas_L <= 0 || m.fs <= 0) {
+    const BoxModel me = mounting::withMounting(withEffectiveMass(m));
+    const double VasEff = me.Vas_L * std::max(1, me.numDrivers);
+    if (me.Qts <= 0 || me.Qts > 0.6 || VasEff <= 0 || me.fs <= 0) {
         QMessageBox::information(this, "B4 vented alignment",
-            "B4 alignment requires Qts in approximately 0.2–0.5 range.");
+            "B4 alignment requires an effective Qts in approximately the 0.2–0.5 range.");
         return;
     }
-    const double ratio = 0.4 / m.Qts;
+    const double ratio = 0.4 / me.Qts;
     const double alpha = std::pow(ratio, 2.87);
     const double h     = std::pow(1.0 / ratio, 0.32);   // h = (Qts/0.4)^0.32
-    const double Vb    = m.Vas_L / alpha;
-    const double fb    = m.fs * h;
+    const double Vb    = VasEff / alpha;
+    const double fb    = me.fs * h;
 
     applyVolumeToModel(this, m, m_volume, Vb);
     m.fb = fb;
@@ -2535,11 +2543,14 @@ void EnclosureWidget::onAlignBP4Flat()
     if (m_activeIdx < 0 || m_activeIdx >= m_models.size()) return;
     auto &m = m_models[m_activeIdx];
 
-    const pp::BP4FlatResult res = pp::bp4MaxFlat(m);
+    // Feed the alignment the same effective driver the simulation sees
+    // (added cone mass + mounting); pp scales for numDrivers internally.
+    const BoxModel me = mounting::withMounting(withEffectiveMass(m));
+    const pp::BP4FlatResult res = pp::bp4MaxFlat(me);
     if (!res.ok) {
         QMessageBox::information(this, "BP4 flat alignment",
             QString("Maximally-flat BP4 needs valid driver fs/Vas and Qts < 0.707 "
-                    "(current Qts = %1).").arg(m.Qts, 0, 'f', 3));
+                    "(effective Qts = %1).").arg(me.Qts, 0, 'f', 3));
         return;
     }
 
@@ -2569,11 +2580,12 @@ void EnclosureWidget::onAlignBP6Flat()
     if (m_activeIdx < 0 || m_activeIdx >= m_models.size()) return;
     auto &m = m_models[m_activeIdx];
 
-    const pp::BP6FlatResult res = pp::bp6MaxFlat(m);
+    const BoxModel me = mounting::withMounting(withEffectiveMass(m));
+    const pp::BP6FlatResult res = pp::bp6MaxFlat(me);
     if (!res.ok) {
         QMessageBox::information(this, "BP6 flat alignment",
             QString("Maximally-flat BP6 needs valid driver fs/Vas and Qts < 0.707 "
-                    "(current Qts = %1).").arg(m.Qts, 0, 'f', 3));
+                    "(effective Qts = %1).").arg(me.Qts, 0, 'f', 3));
         return;
     }
 

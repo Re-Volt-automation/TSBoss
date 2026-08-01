@@ -53,7 +53,6 @@ private:
     QTableWidget   *m_table;
     QLineEdit      *m_search;
     QLabel         *m_countLbl;
-    QLabel         *m_legendLbl  = nullptr;
     QPushButton    *m_btnEdit    = nullptr;
     QPushButton    *m_btnDelete  = nullptr;
     QPushButton    *m_btnUse     = nullptr;

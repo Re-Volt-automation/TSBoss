@@ -21,6 +21,7 @@
 #include <QFont>
 #include <QColor>
 #include <QFrame>
+#include <QSettings>
 #include <cmath>
 
 // ════════════════════════════════════════════════════════════════
@@ -173,22 +174,190 @@ void ImpedanceDiagram::paintEvent(QPaintEvent *)
 }
 
 // ════════════════════════════════════════════════════════════════
+//  SetupDiagram – sine source → series resistor → driver, meter across
+// ════════════════════════════════════════════════════════════════
+SetupDiagram::SetupDiagram(QWidget *parent) : QWidget(parent)
+{
+    setMinimumSize(320, 120);
+    setMaximumHeight(150);
+}
+
+void SetupDiagram::paintEvent(QPaintEvent *)
+{
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.fillRect(rect(), QColor("#fafafa"));
+
+    const double w = width(), h = height();
+    const double yT = h*0.30, yB = h*0.74;                       // top / bottom rails
+    const double xGen = w*0.10, xR0 = w*0.26, xR1 = w*0.42,
+                 xDrv = w*0.66, xMet = w*0.88, xEnd = w*0.92;
+
+    QPen wire(QColor("#333"), 1.8);
+    p.setPen(wire);
+
+    // sine source: circle with a ~ inside
+    const double gr = qMin(h*0.20, 20.0);
+    const QPointF gc(xGen, (yT+yB)/2.0);
+    p.drawEllipse(gc, gr, gr);
+    QPainterPath sine;
+    sine.moveTo(gc.x()-gr*0.55, gc.y());
+    sine.cubicTo(gc.x()-gr*0.25, gc.y()-gr*0.95,
+                 gc.x()+gr*0.25, gc.y()+gr*0.95,
+                 gc.x()+gr*0.55, gc.y());
+    p.drawPath(sine);
+    p.drawLine(QPointF(xGen, gc.y()-gr), QPointF(xGen, yT));
+    p.drawLine(QPointF(xGen, gc.y()+gr), QPointF(xGen, yB));
+
+    // rails (top rail broken by the resistor box)
+    p.drawLine(QPointF(xGen, yT), QPointF(xR0, yT));
+    p.drawLine(QPointF(xR1, yT), QPointF(xEnd, yT));
+    p.drawLine(QPointF(xGen, yB), QPointF(xEnd, yB));
+    p.drawLine(QPointF(xEnd, yT), QPointF(xEnd, yB));            // far-end tie (meter node)
+
+    // series resistor
+    p.setBrush(Qt::white);
+    p.drawRect(QRectF(xR0, yT-7, xR1-xR0, 14));
+    p.setBrush(Qt::NoBrush);
+
+    // driver bridging the rails: voice-coil box + cone lines
+    const double dw = w*0.028;
+    p.setBrush(Qt::white);
+    p.drawRect(QRectF(xDrv-dw, yT, dw*2, yB-yT));
+    p.setBrush(Qt::NoBrush);
+    p.drawLine(QPointF(xDrv+dw, yT+(yB-yT)*0.20),
+               QPointF(xDrv+dw+w*0.045, yT-h*0.05));
+    p.drawLine(QPointF(xDrv+dw, yB-(yB-yT)*0.20),
+               QPointF(xDrv+dw+w*0.045, yB+h*0.05));
+
+    // voltmeter across the driver (same nodes, far right)
+    const double mr = qMin(h*0.15, 15.0);
+    const QPointF mc(xMet, (yT+yB)/2.0);
+    p.drawLine(QPointF(xMet, yT), QPointF(xMet, mc.y()-mr));
+    p.drawLine(QPointF(xMet, mc.y()+mr), QPointF(xMet, yB));
+    p.setPen(QPen(QColor("#8b3a50"), 2.0));
+    p.setBrush(Qt::white);
+    p.drawEllipse(mc, mr, mr);
+    p.setBrush(Qt::NoBrush);
+
+    // junction dots where driver and meter tap the rails
+    auto dot = [&](double x, double y) {
+        p.setPen(Qt::NoPen); p.setBrush(QColor("#333"));
+        p.drawEllipse(QPointF(x, y), 2.6, 2.6);
+        p.setBrush(Qt::NoBrush);
+    };
+    dot(xDrv, yT); dot(xDrv, yB);
+    dot(xMet, yT); dot(xMet, yB);
+
+    // labels
+    QFont f; f.setPointSize(8);
+    p.setFont(f);
+    p.setPen(QColor("#555"));
+    p.drawText(QRectF(xGen-52, yB+6, 104, 14), Qt::AlignHCenter, "sine source");
+    p.drawText(QRectF(xR0-24, yT-24, (xR1-xR0)+48, 14), Qt::AlignHCenter, "Rₛ  50–100 Ω");
+    p.drawText(QRectF(xDrv-40, yB+6, 80, 14), Qt::AlignHCenter, "driver");
+    p.drawText(QRectF(xMet-58, yB+6, 116, 14), Qt::AlignHCenter, "true-RMS meter");
+    QFont fb = f; fb.setBold(true); fb.setPointSize(9);
+    p.setFont(fb);
+    p.setPen(QColor("#8b3a50"));
+    p.drawText(QRectF(mc.x()-mr, mc.y()-mr, mr*2, mr*2), Qt::AlignCenter, "V");
+}
+
+// ════════════════════════════════════════════════════════════════
+//  PistonDiagram – cross-section, Dd measured mid-surround → mid-surround
+// ════════════════════════════════════════════════════════════════
+PistonDiagram::PistonDiagram(QWidget *parent) : QWidget(parent)
+{
+    setMinimumSize(320, 150);
+    setMaximumHeight(190);
+}
+
+void PistonDiagram::paintEvent(QPaintEvent *)
+{
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.fillRect(rect(), QColor("#fafafa"));
+
+    const double w = width(), h = height();
+    const double cx = w*0.5;
+    const double R    = w*0.30;                // cone rim half-width
+    const double sw   = w*0.055;               // surround width
+    const double yRim = h*0.42, yApex = h*0.76, yDim = h*0.16;
+
+    QPen ink(QColor("#333"), 1.8);
+
+    // mounting flange either side of the surround
+    p.setPen(ink);
+    p.drawLine(QPointF(cx-R-sw-w*0.05, yRim), QPointF(cx-R-sw, yRim));
+    p.drawLine(QPointF(cx+R+sw, yRim), QPointF(cx+R+sw+w*0.05, yRim));
+
+    // surround: half-round bumps
+    p.setPen(QPen(QColor("#8b3a50"), 2.2));
+    p.drawArc(QRectF(cx-R-sw, yRim-sw*0.55, sw, sw*1.1), 0, 180*16);
+    p.drawArc(QRectF(cx+R,    yRim-sw*0.55, sw, sw*1.1), 0, 180*16);
+
+    // cone + dust cap
+    p.setPen(ink);
+    const double rvc = w*0.055;
+    p.drawLine(QPointF(cx-R, yRim), QPointF(cx-rvc, yApex));
+    p.drawLine(QPointF(cx+R, yRim), QPointF(cx+rvc, yApex));
+    p.drawArc(QRectF(cx-rvc*1.4, yApex-rvc*1.1, rvc*2.8, rvc*2.0), 0, 180*16);
+
+    // basket hint
+    p.setPen(QPen(QColor("#999"), 1.2));
+    p.drawLine(QPointF(cx-R-sw-w*0.05, yRim), QPointF(cx-rvc*1.8, h*0.86));
+    p.drawLine(QPointF(cx+R+sw+w*0.05, yRim), QPointF(cx+rvc*1.8, h*0.86));
+
+    // dimension line: middle of one surround to the middle of the other
+    const double xL = cx-R-sw*0.5, xRt = cx+R+sw*0.5;
+    p.setPen(QPen(QColor("#c0392b"), 1.0, Qt::DashLine));
+    p.drawLine(QPointF(xL,  yDim), QPointF(xL,  yRim-sw*0.65));
+    p.drawLine(QPointF(xRt, yDim), QPointF(xRt, yRim-sw*0.65));
+    p.setPen(QPen(QColor("#c0392b"), 1.4));
+    p.drawLine(QPointF(xL, yDim), QPointF(xRt, yDim));
+    auto arrow = [&](QPointF tip, int dir) {
+        QPainterPath a;
+        a.moveTo(tip);
+        a.lineTo(tip.x()+dir*7, tip.y()-3.5);
+        a.lineTo(tip.x()+dir*7, tip.y()+3.5);
+        a.closeSubpath();
+        p.fillPath(a, QColor("#c0392b"));
+    };
+    arrow(QPointF(xL,  yDim), +1);
+    arrow(QPointF(xRt, yDim), -1);
+
+    QFont fb; fb.setPointSize(9); fb.setBold(true);
+    p.setFont(fb);
+    p.setPen(QColor("#c0392b"));
+    p.drawText(QRectF(cx-60, yDim-18, 120, 14), Qt::AlignHCenter, "Dᵈ");
+
+    QFont f; f.setPointSize(8);
+    p.setFont(f);
+    p.setPen(QColor("#555"));
+    p.drawText(QRectF(0, h*0.90, w, 14), Qt::AlignHCenter,
+               "middle of the surround on one side  →  middle of the surround on the other");
+}
+
+// ════════════════════════════════════════════════════════════════
 //  Page 1 – Introduction
 // ════════════════════════════════════════════════════════════════
 IntroPage::IntroPage(QWidget *parent) : QWizardPage(parent)
 {
     setTitle("TSBoss – Thiele/Small Measurement Wizard");
-    setSubTitle("SB Acoustics delta-mass method  |  Series-resistor constant-voltage technique");
+    setSubTitle("Delta-mass method  |  Series-resistor technique");
 
     auto *layout = new QVBoxLayout(this);
     layout->setSpacing(10);
 
     layout->addWidget(makeInstructionLabel(
         "<b>Method overview</b><br>"
-        "This wizard uses the SB Acoustics delta-mass procedure: impedance is measured "
-        "with a <b>series resistor</b> (typically 50 Ω) between the amplifier and the "
-        "driver. You will need a frequency-swept signal source, a voltmeter or oscilloscope, "
-        "and a small quantity of plasticine for the added-mass step."));
+        "Impedance is measured with a <b>series resistor</b> between the amplifier and "
+        "the driver, dialling in <em>one frequency at a time</em> by hand. You will need "
+        "an adjustable sine source — a frequency generator, or a tone-generator app on a "
+        "phone feeding a small amplifier — a <b>true-RMS multimeter</b>, a series "
+        "resistor, and some plasticine or Blu-Tack for the added-mass step.<br>"
+        "At each step the wizard calculates the exact meter reading to hunt for — you "
+        "only change the frequency until the meter shows it."));
 
     layout->addWidget(makeInstructionLabel(
         "<b>&#9888;  Break-in the driver first</b><br>"
@@ -211,11 +380,12 @@ IntroPage::IntroPage(QWidget *parent) : QWizardPage(parent)
 IdentityPage::IdentityPage(QWidget *parent) : QWizardPage(parent)
 {
     setTitle("Driver Identification");
-    setSubTitle("Enter the driver's identity information.");
+    setSubTitle("Last step — identify the driver these results belong to.");
 
     m_make       = new QLineEdit;
     m_model      = new QLineEdit;
     m_measuredBy = new QLineEdit;
+    m_measuredBy->setText(QSettings().value("wizard/userName").toString());
     m_date       = new QDateEdit(QDate::currentDate());
     m_date->setCalendarPopup(true);
     m_date->setDisplayFormat("yyyy-MM-dd");
@@ -235,12 +405,43 @@ IdentityPage::IdentityPage(QWidget *parent) : QWizardPage(parent)
 }
 
 // ════════════════════════════════════════════════════════════════
-//  Page 3 – DC Resistance
+//  Page 3 – Piston Diameter
+// ════════════════════════════════════════════════════════════════
+PistonPage::PistonPage(QWidget *parent) : QWizardPage(parent)
+{
+    setTitle("Step 1 – Piston Diameter  (Dᵈ)");
+    setSubTitle("One measurement with a ruler — easiest done before anything is wired up.");
+
+    m_Dd_mm = makeSpin(10.0, 800.0, 1, 0.5, " mm");
+    registerField("Dd_mm", m_Dd_mm, "value", SIGNAL(valueChanged(double)));
+
+    auto *layout = new QVBoxLayout(this);
+    layout->setSpacing(10);
+
+    auto *diag = new PistonDiagram;
+    diag->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    layout->addWidget(diag);
+
+    layout->addWidget(makeInstructionLabel(
+        "Measure straight across the cone, from the <b>middle of the surround on one "
+        "side to the middle of the surround on the other</b> — half of the surround "
+        "moves with the cone, so it counts. This sets the piston area Sᵈ, which Vas "
+        "and the SPL figures all scale from, so measure carefully."));
+
+    auto *form = new QFormLayout;
+    form->setLabelAlignment(Qt::AlignRight);
+    form->addRow("Dᵈ  – piston diameter:", m_Dd_mm);
+    layout->addLayout(form);
+    layout->addStretch();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  Page 4 – DC Resistance
 // ════════════════════════════════════════════════════════════════
 DCResistancePage::DCResistancePage(QWidget *parent) : QWizardPage(parent)
 {
-    setTitle("Step 1 – Voice Coil DC Resistance  (Rₑ)");
-    setSubTitle("Measure Rₑ with a 4-wire ohmmeter or quality multimeter before the sweep.");
+    setTitle("Step 2 – Voice Coil DC Resistance  (Rₑ)");
+    setSubTitle("A plain DC measurement with an ohmmeter — no signal source is involved yet.");
 
     m_Re = makeSpin(0.10, 200.0, 3, 0.01, " Ω");
     registerField("Re", m_Re, "value", SIGNAL(valueChanged(double)));
@@ -249,9 +450,17 @@ DCResistancePage::DCResistancePage(QWidget *parent) : QWizardPage(parent)
     layout->setSpacing(10);
     layout->addWidget(makeInstructionLabel(
         "Use a <b>low resistance range (0–20 Ω)</b>, accuracy better than ±0.1 Ω.<br>"
-        "If using a 2-wire multimeter, do <em>not</em> use the supplied leads "
-        "– their resistance is often too high. Apply offset correction.<br>"
+        "<b>Lead correction:</b> a 2-wire meter also reads its own leads. Short the "
+        "probes together, note the reading (often 0.2–0.5 Ω), and subtract it from "
+        "your measurement — or press the meter's REL / zero button while the probes "
+        "are shorted, if it has one.<br>"
         "<b>Temperature:</b> a copper voice coil at 20 °C reads ~0.9974× its 25 °C value."));
+
+    layout->addWidget(makeInstructionLabel(
+        "<b>Dual voice coil?</b> Measure the two coils wired <b>in series</b>, and if "
+        "that is how the driver will be used, keep exactly that wiring for the whole "
+        "test. If it will be wired in <b>parallel</b>, the parallel Rₑ is the series "
+        "reading <b>÷ 4</b> — enter the Rₑ that matches the wiring you actually test with."));
 
     auto *form = new QFormLayout;
     form->setLabelAlignment(Qt::AlignRight);
@@ -261,17 +470,19 @@ DCResistancePage::DCResistancePage(QWidget *parent) : QWizardPage(parent)
 }
 
 // ════════════════════════════════════════════════════════════════
-//  Page 4 – Measurement Setup  (NEW)
+//  Page 5 – Measurement Setup
 // ════════════════════════════════════════════════════════════════
 MeasurementSetupPage::MeasurementSetupPage(QWidget *parent) : QWizardPage(parent)
 {
-    setTitle("Step 2 – Measurement Setup");
+    setTitle("Step 3 – Measurement Setup");
     setSubTitle("Set your test voltage and circuit — do not change these after measurements begin.");
 
+    // Starting values come from Advanced Settings → Measurement Defaults.
+    const QSettings s;
     m_vmeas = makeSpin(0.01, 50.0, 3, 0.1, " V");
-    m_vmeas->setValue(1.0);
+    m_vmeas->setValue(s.value("wizard/defaultVmeas", 1.0).toDouble());
     m_rs    = makeSpin(1.0, 1000.0, 1, 1.0, " Ω");
-    m_rs->setValue(50.0);
+    m_rs->setValue(s.value("wizard/defaultRs", 50.0).toDouble());
 
     m_rbRms = new QRadioButton("RMS voltage  (e.g. true-RMS multimeter, RMS-capable oscilloscope)");
     m_rbPp  = new QRadioButton("Peak-to-peak  (e.g. oscilloscope in Vpp mode)");
@@ -297,17 +508,26 @@ MeasurementSetupPage::MeasurementSetupPage(QWidget *parent) : QWizardPage(parent
     auto *layout = new QVBoxLayout(this);
     layout->setSpacing(10);
 
-    layout->addWidget(makeInstructionLabel(
-        "<b>Series resistor (R_s)</b><br>"
-        "Place a resistor in series between your amplifier and the driver. "
-        "SB Acoustics uses <b>150 Ω</b>. This value is used to calculate the "
-        "target voltage at your driver terminals for identifying f₁, f₂, and f₃."));
+    auto *diag = new SetupDiagram;
+    diag->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    layout->addWidget(diag);
 
     layout->addWidget(makeInstructionLabel(
-        "<b>Measurement voltage</b><br>"
-        "Set your signal generator/amplifier to a fixed output voltage. "
-        "For a mid-woofer aim for ~1 V rms <em>across the driver</em> at resonance. "
-        "<b>Do not adjust this voltage between any of the measurement steps.</b>"));
+        "<b>Series resistor (Rₛ)</b><br>"
+        "Place a resistor in series between the amplifier and the driver — "
+        "<b>50 or 100 Ω</b> is a good choice for a typical 4 Ω driver. The wizard uses "
+        "this value to calculate the target voltages for f₁, f₂ and f₃.<br>"
+        "<b>Very low impedance driver?</b> With a 1 Ω-wired subwoofer the readings sink "
+        "to the bottom of the meter's range. <b>Four 100 Ω resistors in parallel "
+        "(25 Ω)</b> lifts the readings and shares the heat — most meters are at their "
+        "most accurate with the reading sitting in the <b>200 mV range</b>."));
+
+    layout->addWidget(makeInstructionLabel(
+        "<b>Signal source &amp; measurement voltage</b><br>"
+        "Any clean adjustable sine source works: a frequency generator, or a "
+        "tone-generator app on a phone feeding a small amplifier. Set it to a fixed "
+        "output level — for a mid-woofer aim for ~1 V rms <em>across the driver</em> at "
+        "resonance. <b>Do not adjust this voltage again until every step is complete.</b>"));
 
     auto *box  = new QGroupBox("Test circuit configuration");
     auto *form = new QFormLayout(box);
@@ -325,16 +545,22 @@ MeasurementSetupPage::MeasurementSetupPage(QWidget *parent) : QWizardPage(parent
     form->addRow(modeProxy);   // hidden but in layout
 
     layout->addWidget(box);
+
+    layout->addWidget(makeInstructionLabel(
+        "<b>Meter:</b> a <b>true-RMS</b> meter is the minimum requirement here. At these "
+        "millivolt levels a good true-RMS multimeter is often <em>more</em> accurate "
+        "than reading peak-to-peak on an oscilloscope."));
+
     layout->addStretch();
 }
 
 // ════════════════════════════════════════════════════════════════
-//  Page 5 – Free-Air Impedance
+//  Page 6 – Resonance  (fₛ, f₁, f₂)
 // ════════════════════════════════════════════════════════════════
 FreeAirPage::FreeAirPage(QWidget *parent) : QWizardPage(parent)
 {
-    setTitle("Step 3 – Free-Air Impedance Curve");
-    setSubTitle("Run your sweep and read fₛ, Zmax, then locate f₁ and f₂ using the target voltage.");
+    setTitle("Step 4 – Find the Resonance  (fₛ, f₁, f₂)");
+    setSubTitle("Change the frequency by hand — the highest voltage on the meter marks the resonance.");
 
     m_fs     = makeSpin(1.0,   2000.0, 2, 0.1,   " Hz");
     m_Vpeak  = makeSpin(0.001, 50.0,  4, 0.001,  " V");
@@ -359,10 +585,12 @@ FreeAirPage::FreeAirPage(QWidget *parent) : QWizardPage(parent)
     layout->setSpacing(6);
 
     layout->addWidget(makeInstructionLabel(
-        "≥ 1/24 oct. resolution. Keep the same voltage you configured in Step 2. "
-        "Sweep the full range, identify the resonance peak, then read fₛ and Zmax. "
-        "Z₁ and Z₂ are the <em>two frequencies on either side of the peak</em> "
-        "where impedance = √(Rₑ · Zmax) — use the target voltage shown below."));
+        "Keep the voltage exactly as set in Step 3. Start well <b>below</b> the expected "
+        "resonance and <b>raise the frequency slowly</b> while watching the meter: the "
+        "reading climbs, peaks, then falls again. The frequency where the voltage is "
+        "<b>highest</b> is the resonance <b>fₛ</b> — that is where Zmax sits. Enter that "
+        "frequency and the highest voltage, and the target voltage for finding f₁ and f₂ "
+        "will be calculated below."));
 
     // Side-by-side: diagram left, form right
     auto *hbox = new QHBoxLayout;
@@ -423,11 +651,11 @@ void FreeAirPage::updateLiveCalc()
 
         const double V12 = driverV(Vmeas, Rs, Z12);
         m_lblVtarget->setText(
-            QString("&#128269; <b>Target voltage to find f₁ and f₂:</b>  "
+            QString("&#128269; <b>Target voltage for f₁ and f₂:</b>  "
                     "<span style='font-size:12pt;color:#c0392b;'>%1 %2</span>"
-                    "<br>Sweep either side of the resonance peak — mark the two "
-                    "frequencies where your voltmeter reads this value. "
-                    "These are f₁ (below fₛ) and f₂ (above fₛ).")
+                    "<br>Tune <b>down</b> from fₛ until the meter reads exactly this — "
+                    "that frequency is f₁. Then tune <b>up</b>, back through fₛ, until "
+                    "the same reading appears on the other side — that is f₂.")
             .arg(V12, 0, 'f', 4).arg(vu));
         m_lblVtarget->setVisible(true);
     } else {
@@ -482,12 +710,12 @@ bool FreeAirPage::validatePage()
 }
 
 // ════════════════════════════════════════════════════════════════
-//  Page 6 – Added Mass
+//  Page 8 – Added Mass  (done last — the cone gets sticky)
 // ════════════════════════════════════════════════════════════════
 AddedMassPage::AddedMassPage(QWidget *parent) : QWizardPage(parent)
 {
-    setTitle("Step 4 – Added Mass  (Δm)");
-    setSubTitle("Attach mass to the cone, re-sweep at the same voltage, find the new resonance.");
+    setTitle("Step 6 – Added Mass  (Δm)");
+    setSubTitle("Stick a known mass to the cone and find the new, lower resonance — mass accuracy is everything.");
 
     m_deltaM_g = makeSpin(0.1, 500.0, 2, 0.5, " g");
     m_fo       = makeSpin(1.0, 2000.0, 2, 0.1, " Hz");
@@ -499,12 +727,17 @@ AddedMassPage::AddedMassPage(QWidget *parent) : QWizardPage(parent)
     layout->setSpacing(10);
 
     layout->addWidget(makeInstructionLabel(
-        "Weigh an accurate amount of plasticine (≈ 70 % of expected mms).<br>"
-        "• Attach to the <b>centre of the cone / dust cap</b> — not the surround.<br>"
-        "• Do <em>not</em> use magnets — they disturb the motor.<br>"
-        "• Ensure the mass is fully stuck; no part must vibrate freely.<br>"
-        "• <b>Keep the measurement voltage identical to Step 2.</b><br>"
-        "Find the new, <em>lower</em> resonance peak (f₀ &lt; fₛ)."));
+        "Stick plasticine / Blu-Tack to the <b>centre of the cone / dust cap</b> — never "
+        "the surround. No magnets — they disturb the motor. The mass must be fully "
+        "stuck down; nothing may flap or vibrate.<br>"
+        "• <b>How much?</b> Add mass until the resonance — found again as the highest "
+        "meter reading, at the <b>same voltage as Step 3</b> — lands <b>⅓ to ½ below "
+        "fₛ</b> (e.g. a 30 Hz driver pulled down to 15–20 Hz).<br>"
+        "• <b>Weigh the piece afterwards</b>, including every scrap of Blu-Tack that "
+        "went onto the cone. The weight error goes straight into mms, Vas and BL — a "
+        "digital kitchen scale is often <em>not</em> good enough; a 0.1 g pocket or "
+        "jeweller's scale is worth borrowing.<br>"
+        "Enter the exact added mass and the new, lower resonance f₀."));
 
     auto *form = new QFormLayout;
     form->setLabelAlignment(Qt::AlignRight);
@@ -526,18 +759,19 @@ bool AddedMassPage::validatePage()
 }
 
 // ════════════════════════════════════════════════════════════════
-//  Page 7 – Physical Dimensions
+//  Page 7 – Minimum Impedance & f₃
 // ════════════════════════════════════════════════════════════════
 PhysicalPage::PhysicalPage(QWidget *parent) : QWizardPage(parent)
 {
-    setTitle("Step 5 – Physical Dimensions & f₃");
-    setSubTitle("Measure the piston diameter and enter the voltage at Zmin from the original sweep.");
+    setTitle("Step 5 – Minimum Impedance & f₃");
+    setSubTitle("Climb above the resonance to find the lowest voltage — f₃ follows from it.");
 
-    m_Dd_mm = makeSpin(10.0,  800.0, 1, 0.5,     " mm");
     m_Zmin  = makeSpin(0.0001, 50.0, 4, 0.001,   " V rms");
-    m_f3    = makeSpin(100.0, 100000.0, 0, 100.0, " Hz");
+    // f3 can sit well under 100 Hz on a big low-fs subwoofer; a floor of 100
+    // silently clamped legitimate entries (e.g. 52 → 100). 0 = not yet entered;
+    // validation enforces f3 > fs at the results step.
+    m_f3    = makeSpin(0.0, 100000.0, 1, 1.0, " Hz");
 
-    registerField("Dd_mm", m_Dd_mm, "value", SIGNAL(valueChanged(double)));
     registerField("Zmin",  m_Zmin,  "value", SIGNAL(valueChanged(double)));
     registerField("f3",    m_f3,    "value", SIGNAL(valueChanged(double)));
 
@@ -551,21 +785,17 @@ PhysicalPage::PhysicalPage(QWidget *parent) : QWizardPage(parent)
     layout->setSpacing(8);
 
     layout->addWidget(makeInstructionLabel(
-        "<b>Piston diameter Dᵈ</b> — measure from mid-surround to mid-surround."));
-
-    layout->addWidget(makeInstructionLabel(
-        "<b>Zmin voltage and f₃</b> — from the <em>original</em> (no added mass) sweep:<br>"
-        "• <b>V at Zmin</b> — enter the voltage your meter shows at the impedance minimum "
-        "<em>above</em> the resonance peak (the lowest point on the high-frequency side). "
-        "Zmin is computed automatically.<br>"
-        "• <b>f₃</b> — the frequency where impedance has risen 3 dB above Zmin "
-        "(Z_f₃ = √2 · Zmin). The target voltage is shown below as soon as you enter V at Zmin."));
+        "We need the <b>minimum impedance</b> before f₃ can be worked out — and for "
+        "that, the <b>absolute lowest voltage</b>. From above the resonance peak, "
+        "<b>climb slowly upward</b> in frequency: the reading keeps falling, flattens "
+        "out, and eventually starts rising again. The minimum sits <em>much higher "
+        "up</em> than you might expect, so take it slowly. <b>Ignore the frequency "
+        "where it happens</b> — enter only the lowest voltage you saw:"));
 
     auto *form = new QFormLayout;
     form->setLabelAlignment(Qt::AlignRight);
     form->setSpacing(8);
-    form->addRow("Dᵈ  – piston diameter:", m_Dd_mm);
-    form->addRow("V at Zmin – voltage at impedance min:", m_Zmin);
+    form->addRow("V at Zmin – lowest voltage above fₛ:", m_Zmin);
     layout->addLayout(form);
 
     layout->addWidget(m_lblVmin);
@@ -610,8 +840,9 @@ void PhysicalPage::updateVoltageHints()
         m_lblVf3->setText(
             QString("&#128269; <b>Target voltage for f₃ (3 dB above Zmin):</b>  "
                     "<span style='font-size:12pt;color:#c0392b;'>%1 %2</span>"
-                    "<br>Z_f₃ = √2 × %3 = %4 Ω.  "
-                    "Scan above fₛ — mark where your voltmeter first reaches this value.")
+                    "<br>Z_f₃ = √2 × %3 = %4 Ω.  Keep climbing until the reading has "
+                    "risen back <em>above</em> this value, then come back <b>down</b> — "
+                    "the frequency where the meter reads it is f₃.")
             .arg(Vf3,0,'f',4).arg(vu).arg(Zmin,0,'f',3).arg(Zf3,0,'f',3));
         m_lblVf3->setVisible(true);
     } else {
@@ -640,7 +871,7 @@ static void addResultRow(QGridLayout *g, int &row,
 }
 
 // ════════════════════════════════════════════════════════════════
-//  Page 8 – Results
+//  Page 9 – Results
 // ════════════════════════════════════════════════════════════════
 ResultsPage::ResultsPage(QWidget *parent)
     : QWizardPage(parent)
@@ -652,6 +883,9 @@ ResultsPage::ResultsPage(QWidget *parent)
     m_notes = new QTextEdit;
     m_notes->setPlaceholderText("Measurement notes, setup details, condition of driver…");
     m_notes->setFixedHeight(64);
+    const QString defNotes = QSettings().value("wizard/defaultNotes").toString();
+    if (!defNotes.isEmpty())
+        m_notes->setPlainText(defNotes);
 
     auto *resBox = new QGroupBox("Calculated Parameters");
     resBox->setStyleSheet(themed(
@@ -681,6 +915,8 @@ ResultsPage::ResultsPage(QWidget *parent)
     addResultRow(grid,row,"Sᵈ","Piston area","cm²",m_lblSd);
     addResultRow(grid,row,"Vas","Equivalent volume","L",m_lblVas);
     addResultRow(grid,row,"Lₑ","Voice-coil inductance","mH",m_lblLe);
+    addResultRow(grid,row,"SPL","Sensitivity (1 W / 1 m)","dB",m_lblSpl);
+    addResultRow(grid,row,"SPL","Sensitivity (2.83 V / 1 m)","dB",m_lblSpl283);
 
     m_lblVerify = new QLabel; m_lblVerify->setTextFormat(Qt::RichText);
     grid->addWidget(new QLabel(themed("<span style='color:%muted%;font-size:8pt;'><b>√(f₁·f₂)</b></span>")),row,0);
@@ -729,6 +965,12 @@ void ResultsPage::populateLabels(const DriverRecord &r)
     m_lblSd ->setText(fmt(r.Sd*10000.0, 2));
     m_lblVas->setText(fmt(r.Vas*1000.0, 3));
     m_lblLe ->setText(fmt(r.Le*1000.0,  4));
+    m_lblSpl->setText(fmt(r.Spl, 2));
+    // 2.83 V into Re is 8/Re watts, so the voltage-referenced figure sits
+    // 10·log10(8/Re) above the 1 W figure (identical for an 8 Ω driver).
+    const double spl283 = (r.Spl > 0.0 && r.Re > 0.0)
+                        ? r.Spl + 10.0 * std::log10(8.0 / r.Re) : 0.0;
+    m_lblSpl283->setText(fmt(spl283, 2));
 
     const double pct = (r.fs>0) ? 100.0*(r.fsVerify-r.fs)/r.fs : 0.0;
     const Theme &th = Theme::instance();
@@ -770,6 +1012,10 @@ void ResultsPage::initializePage()
     m_record.f3           = field("f3").toDouble();
 
     TSCalculator::calculate(m_record);
+    // Provenance for the detail/entry views: Re and Dd were measured/typed by
+    // the user; the whole T/S set (incl. SPL) was calculated from measurements.
+    m_record.userEnteredFields = FieldOrigin::Re | FieldOrigin::Dd;
+    m_record.fieldOrigins      = FieldOrigin::AllTS | FieldOrigin::Spl;
     populateLabels(m_record);
 }
 
@@ -791,15 +1037,16 @@ TSWizard::TSWizard(QWidget *parent) : QWizard(parent)
 {
     setWindowTitle("TSBoss – T/S Parameter Wizard");
     setWizardStyle(QWizard::ModernStyle);
-    setMinimumSize(720, 620);
+    setMinimumSize(760, 800);
 
     addPage(new IntroPage);
-    addPage(new IdentityPage);
+    addPage(new PistonPage);
     addPage(new DCResistancePage);
     addPage(new MeasurementSetupPage);
     addPage(new FreeAirPage);
-    addPage(new AddedMassPage);
     addPage(new PhysicalPage);
+    addPage(new AddedMassPage);
+    addPage(new IdentityPage);      // identity last — right before the results
     m_resultsPage = new ResultsPage;
     addPage(m_resultsPage);
 

@@ -3,6 +3,7 @@
 #include <QWidget>
 
 class QLabel;
+class QPushButton;
 
 // ─────────────────────────────────────────────────────────────────
 //  DriverDetailWidget – read-only display of all parameters for
@@ -21,12 +22,15 @@ signals:
     void editRequested(int id);
     void deleteRequested(int id);
     void useRequested(int id);
+    void reopenQuickRequested(int id);
 
 private:
     void buildUi();
 
     // Sanity-check banner (paramcheck.h warnings)
     QLabel *m_warnBanner = nullptr;
+    QLabel *m_legendLbl  = nullptr;
+    QPushButton *m_btnReopenQuick = nullptr;
 
     // Identity
     QLabel *m_lblMake, *m_lblModel;

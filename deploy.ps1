@@ -36,6 +36,11 @@ if (-not (Test-Path $DeployDir)) { New-Item -ItemType Directory -Path $DeployDir
 Write-Host 'Copying latest exe into deploy...' -ForegroundColor Cyan
 Copy-Item $BuildExe $DeployExe -Force
 
+# 3b. Bundle Resources (the Educate button opens the interactive T/S report from
+# a Resources folder next to the exe). Installer picks it up via deploy\*.
+Write-Host 'Copying Resources...' -ForegroundColor Cyan
+Copy-Item 'E:\Projects\TSBoss\Resources' (Join-Path $DeployDir 'Resources') -Recurse -Force
+
 # 4. Top up the bundled Qt DLLs/plugins (idempotent — safe to re-run)
 Write-Host 'Running windeployqt...' -ForegroundColor Cyan
 $env:PATH = "$QtBin;$env:PATH"

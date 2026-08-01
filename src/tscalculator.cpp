@@ -68,6 +68,31 @@ void TSCalculator::calculate(DriverRecord &r)
     if (r.f3 > 0.0 && r.Re > 0.0) {
         const double inner = (r.Re * 20000.0) / (2.0 * PI * r.f3) + 0.5;
         r.Le = inner * 1e-3 / 20.0;
+        if (r.fLe <= 0.0)
+            r.fLe = r.f3;              // the frequency the Le figure was derived at
+    }
+
+    // Reference sensitivity: η₀ = 4π²·fₛ³·Vas / (c³·Qes), SPL = 112.02 + 10·log₁₀ η₀
+    // (1 W / 1 m, half-space — same anchor the enclosure modeller uses).
+    // Fill-if-empty: a datasheet-entered sensitivity wins.
+    if (r.Spl <= 0.0 && r.Vas > 0.0 && r.fs > 0.0 && r.Qes > 0.0) {
+        const double eta = (4.0 * PI * PI * r.fs * r.fs * r.fs * r.Vas)
+                         / (C * C * C * r.Qes);
+        if (eta > 0.0)
+            r.Spl = 112.02 + 10.0 * std::log10(eta);
+    }
+
+    // Nominal impedance estimate: Re is typically ~75 % of the nominal rating,
+    // so snap Re/0.75 to the nearest standard value (log distance — impedance
+    // is a ratio quantity). Fill-if-empty only: a datasheet-entered Znom wins.
+    if (r.Znom <= 0.0 && r.Re > 0.0) {
+        static constexpr double kStd[] { 1.0, 2.0, 4.0, 6.0, 8.0, 16.0, 32.0 };
+        const double basis = r.Re / 0.75;
+        double best = kStd[0];
+        for (double s : kStd)
+            if (std::fabs(std::log(basis / s)) < std::fabs(std::log(basis / best)))
+                best = s;
+        r.Znom = best;
     }
 }
 

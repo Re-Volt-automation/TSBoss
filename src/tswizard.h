@@ -26,6 +26,32 @@ protected:
 };
 
 // ─────────────────────────────────────────────────────────────────
+//  SetupDiagram – series-resistor test circuit sketch
+// ─────────────────────────────────────────────────────────────────
+class SetupDiagram : public QWidget
+{
+    Q_OBJECT
+public:
+    explicit SetupDiagram(QWidget *parent = nullptr);
+    QSize sizeHint() const override { return {460, 150}; }
+protected:
+    void paintEvent(QPaintEvent *) override;
+};
+
+// ─────────────────────────────────────────────────────────────────
+//  PistonDiagram – where to measure the piston diameter
+// ─────────────────────────────────────────────────────────────────
+class PistonDiagram : public QWidget
+{
+    Q_OBJECT
+public:
+    explicit PistonDiagram(QWidget *parent = nullptr);
+    QSize sizeHint() const override { return {460, 190}; }
+protected:
+    void paintEvent(QPaintEvent *) override;
+};
+
+// ─────────────────────────────────────────────────────────────────
 //  Wizard pages
 // ─────────────────────────────────────────────────────────────────
 
@@ -40,6 +66,13 @@ public: explicit IdentityPage(QWidget *p = nullptr);
 private:
     QLineEdit  *m_make, *m_model, *m_measuredBy;
     QDateEdit  *m_date;
+};
+
+class PistonPage : public QWizardPage {
+    Q_OBJECT
+public: explicit PistonPage(QWidget *p = nullptr);
+private:
+    QDoubleSpinBox *m_Dd_mm;
 };
 
 class DCResistancePage : public QWizardPage {
@@ -86,7 +119,7 @@ public:
 private slots:
     void updateVoltageHints();
 private:
-    QDoubleSpinBox *m_Dd_mm, *m_Zmin, *m_f3;
+    QDoubleSpinBox *m_Zmin, *m_f3;
     QLabel         *m_lblVmin, *m_lblVf3;
 };
 
@@ -102,14 +135,14 @@ private:
     QLabel    *m_lblQts, *m_lblQms, *m_lblQes;
     QLabel    *m_lblFs,  *m_lblMms, *m_lblBL;
     QLabel    *m_lblCms, *m_lblRms, *m_lblVas;
-    QLabel    *m_lblSd,  *m_lblLe,  *m_lblRe;
+    QLabel    *m_lblSd,  *m_lblLe,  *m_lblRe, *m_lblSpl, *m_lblSpl283;
     QLabel    *m_lblVerify;
     DriverRecord m_record;
     void populateLabels(const DriverRecord &r);
 };
 
 // ─────────────────────────────────────────────────────────────────
-//  TSWizard – 8-page guided measurement wizard
+//  TSWizard – 9-page guided measurement wizard
 // ─────────────────────────────────────────────────────────────────
 class TSWizard : public QWizard
 {

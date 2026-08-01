@@ -19,6 +19,7 @@
 #include <QButtonGroup>
 #include <QMessageBox>
 #include <QFrame>
+#include <QSettings>
 #include <cmath>
 
 // ── helpers ──────────────────────────────────────────────────────
@@ -121,6 +122,7 @@ void QuickEntryWidget::buildUi()
         m_make       = new QLineEdit;
         m_model      = new QLineEdit;
         m_measuredBy = new QLineEdit;
+        m_measuredBy->setText(QSettings().value("wizard/userName").toString());
         m_date       = new QDateEdit(QDate::currentDate());
         m_date->setCalendarPopup(true);
         m_date->setDisplayFormat("yyyy-MM-dd");
@@ -137,10 +139,12 @@ void QuickEntryWidget::buildUi()
         auto *form = new QFormLayout(box);
         form->setLabelAlignment(Qt::AlignRight); form->setSpacing(8);
 
+        // Starting values come from Advanced Settings → Measurement Defaults.
+        const QSettings s;
         m_rs    = mkSpin(1.0,  1000.0, 1, 1.0, " Ω");
-        m_rs->setValue(50.0);
+        m_rs->setValue(s.value("wizard/defaultRs", 50.0).toDouble());
         m_vmeas = mkSpin(0.01, 50.0,   3, 0.1, " V");
-        m_vmeas->setValue(1.0);
+        m_vmeas->setValue(s.value("wizard/defaultVmeas", 1.0).toDouble());
         m_rbRms = new QRadioButton("RMS  (true-RMS meter / oscilloscope rms mode)");
         m_rbPp  = new QRadioButton("Peak-to-peak  (oscilloscope Vpp mode)");
         m_rbRms->setChecked(true);
@@ -297,7 +301,7 @@ void QuickEntryWidget::buildUi()
         form->setLabelAlignment(Qt::AlignRight); form->setSpacing(8);
         m_Dd_mm = mkSpin(0.0,   800.0, 1, 0.5,   " mm");
         m_Zmin  = mkSpin(0.0,    50.0, 4, 0.001, " V rms");
-        m_f3    = mkSpin(0.0,100000.0, 0,100.0,  " Hz");
+        m_f3    = mkSpin(0.0,100000.0, 1,  1.0,  " Hz");
 
         m_hintVmin = mkHintLbl();
         m_hintVf3  = mkHintLbl();
@@ -329,6 +333,9 @@ void QuickEntryWidget::buildUi()
         m_notes->setPlaceholderText(
             "Setup details, driver condition, temperature, equipment used…");
         m_notes->setFixedHeight(80);
+        const QString defNotes = QSettings().value("wizard/defaultNotes").toString();
+        if (!defNotes.isEmpty())
+            m_notes->setPlainText(defNotes);
         bl->addWidget(m_notes);
         vbox->addWidget(box);
     }
@@ -396,6 +403,8 @@ void QuickEntryWidget::buildResultsGroup()
     addResRow(grid,r,"Sᵈ","Effective piston area","cm²",m_resSd);
     addResRow(grid,r,"Vas","Equivalent air volume","litres",m_resVas);
     addResRow(grid,r,"Lₑ","Voice-coil inductance","mH",m_resLe);
+    addResRow(grid,r,"SPL","Sensitivity (1 W / 1 m)","dB",m_resSpl);
+    addResRow(grid,r,"SPL","Sensitivity (2.83 V / 1 m)","dB",m_resSpl283);
 
     grid->addWidget(new QLabel("<b>√(f₁·f₂)</b>"),r,0);
     grid->addWidget(new QLabel("Resonance verify"),r,1);
@@ -525,6 +534,10 @@ void QuickEntryWidget::showResults(const DriverRecord &r)
     m_resSd ->setText(fmt(r.Sd*10000.0, 2));
     m_resVas->setText(fmt(r.Vas*1000.0, 3));
     m_resLe ->setText(fmt(r.Le*1000.0,  4));
+    m_resSpl->setText(fmt(r.Spl, 2));
+    const double spl283 = (r.Spl > 0.0 && r.Re > 0.0)
+                        ? r.Spl + 10.0 * std::log10(8.0 / r.Re) : 0.0;
+    m_resSpl283->setText(fmt(spl283, 2));
 
     const double pct = (r.fs>0) ? 100.0*(r.fsVerify-r.fs)/r.fs : 0.0;
     const bool ok    = std::fabs(pct) < 3.0;
@@ -548,8 +561,10 @@ void QuickEntryWidget::onCalculate()
         return;
     }
     TSCalculator::calculate(r);
-    // All T/S parameters are derived from measurements — mark as calculated
-    r.fieldOrigins = FieldOrigin::AllTS;
+    // All T/S parameters (incl. SPL) are derived from measurements — mark as
+    // calculated; Re and Dd were measured/typed by the user.
+    r.fieldOrigins      = FieldOrigin::AllTS | FieldOrigin::Spl;
+    r.userEnteredFields = FieldOrigin::Re | FieldOrigin::Dd;
     m_lastRecord = r;
     showResults(r);
     m_statusLbl->setStyleSheet("color:#27ae60;");
@@ -560,10 +575,14 @@ void QuickEntryWidget::onCalculate()
 
 void QuickEntryWidget::clear()
 {
-    m_make->clear(); m_model->clear(); m_measuredBy->clear();
+    const QSettings s;
+    m_make->clear(); m_model->clear();
+    m_measuredBy->setText(s.value("wizard/userName").toString());
     m_date->setDate(QDate::currentDate());
-    m_notes->clear();
-    m_vmeas->setValue(1.0); m_rs->setValue(50.0); m_rbRms->setChecked(true);
+    m_notes->setPlainText(s.value("wizard/defaultNotes").toString());
+    m_vmeas->setValue(s.value("wizard/defaultVmeas", 1.0).toDouble());
+    m_rs->setValue(s.value("wizard/defaultRs", 50.0).toDouble());
+    m_rbRms->setChecked(true);
     m_Re->setValue(0);
     m_fs->setValue(0);   m_Vpeak->setValue(0);
     m_f1->setValue(0);   m_f2->setValue(0);

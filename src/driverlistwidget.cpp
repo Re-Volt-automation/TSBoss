@@ -34,18 +34,6 @@ static const QStringList HEADERS = {
     "fₛ (Hz)", "Qts", "Vas (L)", "BL (Tm)", "Rₑ (Ω)"
 };
 
-// Value-origin colours for numeric cells. Picked per theme: the light-mode
-// hues vanish against the dark background.
-static QColor calcColor()
-{
-    return Theme::instance().mode() == Theme::Mode::Dark ? QColor("#4aa3d8")
-                                                         : QColor("#1a7db5");
-}
-static QColor userColor()
-{
-    return Theme::instance().mode() == Theme::Mode::Dark ? QColor("#66bb6a")
-                                                         : QColor("#2e7d32");
-}
 
 // Toolbar button styles — all theme-derived. One accent action (Use for
 // Enclosure); everything else neutral, with Delete turning red on hover.
@@ -117,9 +105,6 @@ DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
     m_btnImport  = new QPushButton("Import CSV");
     m_btnExport  = new QPushButton("Export CSV");
     m_countLbl  = new QLabel;
-    m_legendLbl = new QLabel;
-    m_legendLbl->setToolTip("Coloured values: calculated = derived from other fields, "
-                            "user-entered = typed in by hand.");
 
     toolbar->addWidget(m_search);
     toolbar->addWidget(m_btnRefresh);
@@ -131,8 +116,6 @@ DriverListWidget::DriverListWidget(DriverDatabase *db, QWidget *parent)
     toolbar->addWidget(m_btnImport);
     toolbar->addWidget(m_btnExport);
     toolbar->addStretch();
-    toolbar->addWidget(m_legendLbl);
-    toolbar->addSpacing(12);
     toolbar->addWidget(m_countLbl);
 
     // ── Parametric filter row (collapsed until Filters is toggled)
@@ -245,10 +228,6 @@ void DriverListWidget::restyleControls()
                     m_btnImport, m_btnExport})
         b->setStyleSheet(neutralBtnStyle());
     m_countLbl->setStyleSheet(themed("color:%muted%;"));
-    m_legendLbl->setStyleSheet(themed("color:%muted%; font-size:8pt;"));
-    m_legendLbl->setText(QString("<span style='color:%1;'>●</span> calculated"
-                                 "&nbsp;&nbsp;<span style='color:%2;'>●</span> user-entered")
-                         .arg(calcColor().name(), userColor().name()));
     if (m_filterRow) {
         for (auto *l : m_filterRow->findChildren<QLabel *>())
             l->setStyleSheet(themed("color:%muted%;"));
@@ -286,6 +265,21 @@ void DriverListWidget::refresh()
     updateFilterButton();
 }
 
+// Numeric table cell: displays the fixed-decimals text but sorts by the real
+// value. A plain QTableWidgetItem compares text lexicographically, which puts
+// "130.0" before "21.9" the moment a column is sorted.
+namespace {
+constexpr int kNumericSortRole = Qt::UserRole + 1;
+class NumericItem : public QTableWidgetItem {
+public:
+    using QTableWidgetItem::QTableWidgetItem;
+    bool operator<(const QTableWidgetItem &other) const override {
+        return data(kNumericSortRole).toDouble()
+             < other.data(kNumericSortRole).toDouble();
+    }
+};
+} // namespace
+
 void DriverListWidget::populate(const QList<DriverRecord> &records)
 {
     m_table->setSortingEnabled(false);
@@ -296,18 +290,11 @@ void DriverListWidget::populate(const QList<DriverRecord> &records)
         item->setFlags(item->flags() & ~Qt::ItemIsEditable);
         m_table->setItem(row, col, item);
     };
-    const QColor kCalcColor = calcColor();
-    const QColor kUserColor = userColor();
-
-    auto numCell = [&](int row, int col, double v, int d,
-                       bool calculated = false, bool userEntered = false) {
-        auto *item = new QTableWidgetItem(QString::number(v,'f',d));
+    auto numCell = [&](int row, int col, double v, int d) {
+        auto *item = new NumericItem(QString::number(v,'f',d));
+        item->setData(kNumericSortRole, v);
         item->setFlags(item->flags() & ~Qt::ItemIsEditable);
         item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        if (v > 0.0) {
-            if (calculated)       item->setForeground(QBrush(kCalcColor));
-            else if (userEntered) item->setForeground(QBrush(kUserColor));
-        }
         m_table->setItem(row, col, item);
     };
 
@@ -323,11 +310,11 @@ void DriverListWidget::populate(const QList<DriverRecord> &records)
         cell(i, C_MODEL, r.model);
         cell(i, C_DATE,  r.dateMeasured.toString("yyyy-MM-dd"));
         cell(i, C_BY,     r.measuredBy);
-        numCell(i, C_FS,  r.fs,           1, false,                          r.fs > 0.0);
-        numCell(i, C_QTS, r.Qts,          3, r.fieldOrigins & FieldOrigin::Qts, r.userEnteredFields & FieldOrigin::Qts);
-        numCell(i, C_VAS, r.Vas * 1000.0, 2, r.fieldOrigins & FieldOrigin::Vas, r.userEnteredFields & FieldOrigin::Vas);
-        numCell(i, C_BL,  r.BL,           2, r.fieldOrigins & FieldOrigin::BL,  r.userEnteredFields & FieldOrigin::BL);
-        numCell(i, C_RE,  r.Re,           2, r.fieldOrigins & FieldOrigin::Re,   r.userEnteredFields & FieldOrigin::Re);
+        numCell(i, C_FS,  r.fs,           1);
+        numCell(i, C_QTS, r.Qts,          3);
+        numCell(i, C_VAS, r.Vas * 1000.0, 2);
+        numCell(i, C_BL,  r.BL,           2);
+        numCell(i, C_RE,  r.Re,           2);
     }
 
     m_table->setSortingEnabled(true);
